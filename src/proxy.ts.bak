@@ -1,0 +1,6 @@
+// middleware.ts → proxy.ts (Next.js 16 convention)
+// En modo export estático, el middleware no se ejecuta en el servidor.
+// La protección de rutas se maneja en el cliente con Supabase.
+// Este archivo queda como referencia pero no afecta el build estático.
+
+export {};

@@ -37,6 +37,7 @@
     "supabase": "^2.99.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.93.1"
   }
 }
