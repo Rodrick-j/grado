@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Icon } from '@/components/Icon';
 import { useAuth } from '@/hooks/useAuth';
 import { createClient } from '@/lib/supabase';
+import { playNotificationSound } from '@/lib/audio';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -13,15 +14,15 @@ type AlertStatus   = 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED' | 'EXPIRED';
 interface ClinicalAlert {
   id: string;
   patient_id?: string | null;
-  alert_type: string;
+  type: string;
   severity: AlertSeverity;
   title: string;
   message: string;
-  status: AlertStatus;
+  is_active: boolean;
   acknowledged_by?: string | null;
   acknowledged_at?: string | null;
+  resolved_at?: string | null;
   created_at: string;
-  expires_at?: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ export function AlertCenter() {
   const { user } = useAuth();
   const supabase = createClient();
 
-  const activeAlerts = alerts.filter((a) => a.status === 'ACTIVE');
+  const activeAlerts = alerts.filter((a) => a.is_active && !a.acknowledged_at);
   const hasEmergency = activeAlerts.some((a) => a.severity === 'EMERGENCY');
   const unacknowledgedCount = activeAlerts.length;
 
@@ -92,7 +93,7 @@ export function AlertCenter() {
       const { data, error } = await supabase
         .from('clinical_alerts')
         .select('*')
-        .in('status', ['ACTIVE', 'ACKNOWLEDGED'])
+        .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -122,6 +123,7 @@ export function AlertCenter() {
               const next = [payload.new as ClinicalAlert, ...prev];
               return next.sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
             });
+            playNotificationSound('alert');
           } else if (payload.eventType === 'UPDATE') {
             setAlerts((prev) =>
               prev
@@ -161,7 +163,6 @@ export function AlertCenter() {
       const { error } = await supabase
         .from('clinical_alerts')
         .update({
-          status: 'ACKNOWLEDGED',
           acknowledged_by: user.id,
           acknowledged_at: now,
         })
@@ -171,7 +172,7 @@ export function AlertCenter() {
         setAlerts((prev) =>
           prev.map((a) =>
             a.id === alertId
-              ? { ...a, status: 'ACKNOWLEDGED', acknowledged_by: user.id, acknowledged_at: now }
+              ? { ...a, acknowledged_by: user.id, acknowledged_at: now }
               : a
           )
         );
@@ -349,7 +350,7 @@ export function AlertCenter() {
             ) : (
               alerts.map((alert) => {
                 const cfg = SEVERITY_CONFIG[alert.severity] || SEVERITY_CONFIG.INFO;
-                const isAcknowledged = alert.status === 'ACKNOWLEDGED';
+                const isAcknowledged = !!alert.acknowledged_at;
                 const isAcknowledgingThis = acknowledging === alert.id;
 
                 return (

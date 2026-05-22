@@ -106,14 +106,14 @@ export function SepsisPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 24 }}>
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_350px] gap-6">
         
         {/* Parámetros a la izquierda */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           
           <div className="glass-card" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Frecuencia Respiratoria (rpm)</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {renderOption('respRate', '≤ 8', 3, scores.respRate === 3 && total === scores.respRate)} {/* We use total logic simply below, but for UI selection we need exact matching if same values exist. This is a simplified matching. */}
               {renderOption('respRate', '9-11', 1, scores.respRate === 1)}
               {renderOption('respRate', '12-20', 0, scores.respRate === 0)}
@@ -125,7 +125,7 @@ export function SepsisPage() {
 
           <div className="glass-card" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Saturación de Oxígeno (%)</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {renderOption('spo2', '≤ 91', 3, scores.spo2 === 3)}
               {renderOption('spo2', '92-93', 2, scores.spo2 === 2)}
               {renderOption('spo2', '94-95', 1, scores.spo2 === 1)}
@@ -135,7 +135,7 @@ export function SepsisPage() {
 
           <div className="glass-card" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Temperatura (°C)</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {renderOption('temp', '≤ 35.0', 3, scores.temp === 3)}
               {renderOption('temp', '35.1-36.0', 1, scores.temp === 1)}
               {renderOption('temp', '36.1-38.0', 0, scores.temp === 0)}
@@ -146,7 +146,7 @@ export function SepsisPage() {
 
           <div className="glass-card" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Presión Sistólica (mmHg)</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {renderOption('sbp', '≤ 90', 3, scores.sbp === 3)}
               {renderOption('sbp', '91-100', 2, scores.sbp === 2)}
               {renderOption('sbp', '101-110', 1, scores.sbp === 1)}
@@ -157,7 +157,7 @@ export function SepsisPage() {
 
           <div className="glass-card" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Frecuencia Cardíaca (lpm)</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {renderOption('hr', '≤ 40', 3, scores.hr === 3)}
               {renderOption('hr', '41-50', 1, scores.hr === 1)}
               {renderOption('hr', '51-90', 0, scores.hr === 0)}
@@ -169,7 +169,7 @@ export function SepsisPage() {
 
           <div className="glass-card" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Nivel de Consciencia (AVPU)</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {renderOption('avpu', 'Alerta (A)', 0, scores.avpu === 0)}
               {renderOption('avpu', 'Confusión / V / P / U', 3, scores.avpu === 3)}
             </div>

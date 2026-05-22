@@ -21,7 +21,10 @@ export function ADTPage() {
   const [filterInsurance, setFilterInsurance] = useState('');
   const [filterDoctor, setFilterDoctor] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [filterSpecialty, setFilterSpecialty] = useState('');
   const [doctors, setDoctors] = useState<any[]>([]);
+  const [specialties, setSpecialties] = useState<any[]>([]);
 
   // Pending filter inputs (applied only on click)
   const [pendingStatus, setPendingStatus] = useState('');
@@ -30,6 +33,8 @@ export function ADTPage() {
   const [pendingInsurance, setPendingInsurance] = useState('');
   const [pendingDoctor, setPendingDoctor] = useState('');
   const [pendingSearch, setPendingSearch] = useState('');
+  const [pendingDate, setPendingDate] = useState('');
+  const [pendingSpecialty, setPendingSpecialty] = useState('');
 
   // Edit Patient State
   const [editingPatient, setEditingPatient] = useState<any | null>(null);
@@ -58,24 +63,57 @@ export function ADTPage() {
   useEffect(() => {
     fetchPatients();
     fetchDoctors();
+
+    const channel = supabase.channel('public:patients')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => {
+        // Fetch full list again to maintain relationships and sort order
+        fetchPatients();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchDoctors = async () => {
-    const { data } = await supabase
+    const { data: docData } = await supabase
       .from('professionals')
-      .select('id, title, user_profiles(full_name)');
-    if (data) setDoctors(data);
+      .select('id, title, specialty_id, user_profiles(full_name)');
+    if (docData) setDoctors(docData);
+
+    const { data: specData } = await supabase
+      .from('specialties')
+      .select('id, name')
+      .order('name');
+    if (specData) setSpecialties(specData);
   };
 
   const fetchPatients = async () => {
     setLoading(true);
     let q = supabase
       .from('patients')
-      .select('*')
+      .select('*, creator:user_profiles!patients_created_by_fkey(full_name)')
       .neq('status', 'OUTPATIENT')
       .order('created_at', { ascending: false });
 
     if (filterStatus) q = q.eq('status', filterStatus);
+    if (filterDate) {
+      const startOfDay = new Date(filterDate);
+      startOfDay.setUTCHours(0,0,0,0);
+      const endOfDay = new Date(filterDate);
+      endOfDay.setUTCHours(23,59,59,999);
+      q = q.gte('created_at', startOfDay.toISOString());
+      q = q.lte('created_at', endOfDay.toISOString());
+    }
+    if (filterSpecialty) {
+      const docsWithSpecialty = doctors.filter(d => d.specialty_id === filterSpecialty).map(d => d.id);
+      if (docsWithSpecialty.length > 0) {
+        q = q.in('primary_doctor_id', docsWithSpecialty);
+      } else {
+        q = q.in('primary_doctor_id', ['00000000-0000-0000-0000-000000000000']); // force no results
+      }
+    }
     if (filterAgeMin) {
       const maxDate = new Date();
       maxDate.setFullYear(maxDate.getFullYear() - parseInt(filterAgeMin));
@@ -107,6 +145,8 @@ export function ADTPage() {
     setFilterInsurance(pendingInsurance);
     setFilterDoctor(pendingDoctor);
     setFilterSearch(pendingSearch);
+    setFilterDate(pendingDate);
+    setFilterSpecialty(pendingSpecialty);
   };
 
   const clearFilters = () => {
@@ -116,18 +156,23 @@ export function ADTPage() {
     setPendingInsurance('');
     setPendingDoctor('');
     setPendingSearch('');
+    setPendingDate('');
+    setPendingSpecialty('');
+    
     setFilterStatus('');
     setFilterAgeMin('');
     setFilterAgeMax('');
     setFilterInsurance('');
     setFilterDoctor('');
     setFilterSearch('');
+    setFilterDate('');
+    setFilterSpecialty('');
   };
 
   useEffect(() => {
     fetchPatients();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus, filterAgeMin, filterAgeMax, filterInsurance, filterDoctor, filterSearch]);
+  }, [filterStatus, filterAgeMin, filterAgeMax, filterInsurance, filterDoctor, filterSearch, filterDate, filterSpecialty]);
 
   // Patients are already filtered server-side; local search for quick tab filter
   const filteredPatients = patients.filter(p => {
@@ -340,6 +385,19 @@ export function ADTPage() {
                 </select>
               </div>
               <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Día de Registro</label>
+                <input type="date" className="input-field" value={pendingDate} onChange={e => setPendingDate(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Especialidad</label>
+                <select className="input-field" value={pendingSpecialty} onChange={e => setPendingSpecialty(e.target.value)}>
+                  <option value="">Todas</option>
+                  {specialties.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Buscar</label>
                 <input className="input-field" placeholder="Nombre, apellido o MRN" value={pendingSearch} onChange={e => setPendingSearch(e.target.value)} />
               </div>
@@ -365,6 +423,7 @@ export function ADTPage() {
                   <th>Seguro</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Estado</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Ingreso</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Registrado por</th>
                   <th style={{ whiteSpace: 'nowrap' }}>Acciones</th>
                 </tr></thead>
                 <tbody>
@@ -379,8 +438,11 @@ export function ADTPage() {
                       const cellStyle = isSelected ? { background: 'rgba(30, 136, 229, 0.12)' } : undefined;
                       return (
                         <tr key={p.id} onClick={() => setQuickPreviewPatient(p)} style={{ cursor: 'pointer' }}>
-                          <td style={{ ...cellStyle, borderLeft: isSelected ? '3px solid #1E88E5' : '3px solid transparent', transition: 'border-color 0.15s ease', whiteSpace: 'nowrap' }}>
-                            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5, color: 'var(--color-teal)', fontWeight: 700 }}>{p.mrn}</div>
+                          <td style={{ ...cellStyle, borderLeft: isSelected ? '3px solid #1E88E5' : '3px solid transparent', transition: 'border-color 0.15s ease' }}>
+                            <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10.5, color: 'var(--color-teal)', fontWeight: 700, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                              <span>{p.mrn?.split('-')[0]}</span>
+                              <span>{p.mrn?.split('-').slice(1).join('-')}</span>
+                            </div>
                           </td>
                           <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
                             <div style={{ fontWeight: 600, fontSize: 11.5, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{p.ci_passport}</div>
@@ -416,7 +478,18 @@ export function ADTPage() {
                           </td>
                           <td style={{ ...cellStyle }}><span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{p.insurance_provider || 'Particular'}</span></td>
                           <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}><span className="badge" style={{ background: `${sc.color}18`, color: sc.color, borderColor: `${sc.color}30`, whiteSpace: 'nowrap', fontSize: 10.5, padding: '2px 6px' }}>{sc.label}</span></td>
-                          <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}><span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)' }}>{new Date(p.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span></td>
+                          <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                              <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{new Date(p.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                              <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)' }}>{new Date(p.created_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          </td>
+                          <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="UserCircle" size={14} style={{ color: 'var(--text-muted)' }} />
+                              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{p.creator?.full_name || 'Sistema'}</span>
+                            </div>
+                          </td>
                           <td style={{ ...cellStyle, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                             <div style={{ display: 'flex', gap: 2 }}>
                               <button className="btn-ghost" style={{ padding: '3px 6px', fontSize: 11, color: isSelected ? '#1E88E5' : 'inherit' }} title="Vista Rápida" onClick={() => setQuickPreviewPatient(p)}>

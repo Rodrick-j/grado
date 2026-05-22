@@ -233,7 +233,7 @@ export default function RecibosPage() {
   return (
     <div className="animate-fade-in" style={{ maxWidth: 1400, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
             <Icon name="Receipt" size={22} style={{ color: '#FF9800' }} />
@@ -247,7 +247,7 @@ export default function RecibosPage() {
       </div>
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
           { label: 'Recaudado Hoy', value: `Bs. ${kpis.total.toFixed(2)}`, icon: 'TrendingUp', color: '#4CAF50' },
           { label: 'Por Cobrar', value: `Bs. ${kpis.pendiente.toFixed(2)}`, icon: 'Clock', color: '#FF9800' },
@@ -352,9 +352,9 @@ export default function RecibosPage() {
 
       {/* Modal */}
       {showModal && (
-        <>
-          <div onClick={() => setShowModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, backdropFilter: 'blur(4px)' }} />
-          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: '100%', maxWidth: 540, zIndex: 201, background: '#0B1628', border: '1px solid rgba(255,153,0,0.3)', borderRadius: 16, padding: 28, boxShadow: '0 32px 80px rgba(0,0,0,0.6)' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={() => setShowModal(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} />
+          <div className="animate-fade-in" style={{ position: 'relative', width: '90%', maxWidth: 540, zIndex: 201, background: '#0B1628', border: '1px solid rgba(255,153,0,0.3)', borderRadius: 16, padding: 28, boxShadow: '0 32px 80px rgba(0,0,0,0.6)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
               <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="Receipt" size={18} style={{ color: '#FF9800' }} /> Emitir Nuevo Recibo
@@ -369,7 +369,7 @@ export default function RecibosPage() {
                   {patients.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name} — {p.mrn}</option>)}
                 </select>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>Tipo de Servicio *</label>
                   <select value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))} style={inp}>
@@ -387,7 +387,7 @@ export default function RecibosPage() {
                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>Descripción / Concepto</label>
                 <input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Consulta médica — Cardiología" style={inp} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, display: 'block' }}>Subtotal (Bs.) *</label>
                   <input type="number" min="0" step="0.01" value={form.monto_subtotal} onChange={e => setForm(f => ({ ...f, monto_subtotal: e.target.value }))} placeholder="0.00" style={inp} />
@@ -420,7 +420,7 @@ export default function RecibosPage() {
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

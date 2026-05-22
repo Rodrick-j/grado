@@ -238,12 +238,20 @@ body {
   text-transform: uppercase;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-secondary);
+  border-right: 1px solid var(--border-secondary);
+}
+.data-table th:last-child {
+  border-right: none;
 }
 .data-table td {
   padding: 8px 6px;
   font-size: 12px;
   border-bottom: 1px solid var(--border-secondary);
+  border-right: 1px solid var(--border-secondary);
   color: var(--text-secondary);
+}
+.data-table td:last-child {
+  border-right: none;
 }
 .data-table tr:hover td { background: rgba(30, 136, 229, 0.04); }
 .data-table td:first-child { color: var(--text-primary); font-weight: 500; }

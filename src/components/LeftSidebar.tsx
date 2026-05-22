@@ -69,8 +69,8 @@ export function LeftSidebar({ collapsed, onToggle, isMobile }: LeftSidebarProps)
       <div style={{ padding: '14px 12px', borderBottom: '1px solid var(--border-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         {!collapsed && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg, #1E88E5, #00BCD4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Icon name="Building2" size={14} style={{ color: 'var(--text-on-gradient)' }} strokeWidth={2} />
+            <div style={{ width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24, objectFit: 'contain' }} />
             </div>
             <div style={{ overflow: 'hidden' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>SAN JUAN DE DIOS</div>
@@ -97,23 +97,26 @@ export function LeftSidebar({ collapsed, onToggle, isMobile }: LeftSidebarProps)
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     cursor: 'pointer',
-                    padding: '12px 8px 6px 8px',
+                    padding: '10px 12px',
                     userSelect: 'none',
-                    borderRadius: 6,
+                    borderRadius: 8,
+                    border: '1px solid var(--border-secondary)',
+                    background: isSectionCollapsed ? 'transparent' : 'var(--bg-card)',
+                    boxShadow: isSectionCollapsed ? 'none' : '0 2px 4px rgba(0,0,0,0.02)',
                     transition: 'all var(--transition-fast)',
-                    color: '#556B8D',
+                    color: 'var(--text-primary)',
                   }}
                   className="sidebar-section-header"
                   onMouseEnter={e => {
-                    e.currentTarget.style.color = 'var(--text-primary)';
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
+                    e.currentTarget.style.borderColor = 'var(--color-blue)';
+                    e.currentTarget.style.background = 'var(--bg-card-hover)';
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.color = '#556B8D';
-                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = 'var(--border-secondary)';
+                    e.currentTarget.style.background = isSectionCollapsed ? 'transparent' : 'var(--bg-card)';
                   }}
                 >
-                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>{section}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: isSectionCollapsed ? 'var(--text-muted)' : 'var(--color-blue)' }}>{section}</span>
                   <Icon
                     name={isSectionCollapsed ? 'ChevronRight' : 'ChevronDown'}
                     size={11}

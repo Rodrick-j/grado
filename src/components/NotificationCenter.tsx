@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { useAuth } from '@/hooks/useAuth';
 import { createClient } from '@/lib/supabase';
+import { playNotificationSound } from '@/lib/audio';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -15,8 +16,8 @@ interface Notification {
   user_id: string;
   type: NotificationType;
   title: string;
-  message: string;
-  is_read: boolean;
+  body: string;
+  read_at: string | null;
   action_url?: string | null;
   created_at: string;
 }
@@ -50,7 +51,7 @@ export function NotificationCenter() {
   const router = useRouter();
   const supabase = createClient();
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const unreadCount = notifications.filter((n) => !n.read_at).length;
 
   // ── Fetch initial notifications ──────────────────────────────────────────
   const fetchNotifications = useCallback(async () => {
@@ -90,7 +91,10 @@ export function NotificationCenter() {
         },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setNotifications((prev) => [payload.new as Notification, ...prev].slice(0, 50));
+            const newNotif = payload.new as Notification;
+            setNotifications((prev) => [newNotif, ...prev].slice(0, 50));
+            // Trigger sound if it's a new notification
+            playNotificationSound('notification');
           } else if (payload.eventType === 'UPDATE') {
             setNotifications((prev) =>
               prev.map((n) => (n.id === payload.new.id ? (payload.new as Notification) : n))
@@ -122,23 +126,25 @@ export function NotificationCenter() {
   // ── Mark all as read ─────────────────────────────────────────────────────
   const markAllRead = async () => {
     if (!user?.id) return;
-    const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
+    const unreadIds = notifications.filter((n) => !n.read_at).map((n) => n.id);
     if (!unreadIds.length) return;
 
+    const now = new Date().toISOString();
     await supabase
       .from('notifications')
-      .update({ is_read: true })
+      .update({ read_at: now })
       .in('id', unreadIds);
 
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setNotifications((prev) => prev.map((n) => ({ ...n, read_at: now })));
   };
 
   // ── Handle click on a notification ──────────────────────────────────────
   const handleClick = async (notif: Notification) => {
-    if (!notif.is_read) {
-      await supabase.from('notifications').update({ is_read: true }).eq('id', notif.id);
+    if (!notif.read_at) {
+      const now = new Date().toISOString();
+      await supabase.from('notifications').update({ read_at: now }).eq('id', notif.id);
       setNotifications((prev) =>
-        prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n))
+        prev.map((n) => (n.id === notif.id ? { ...n, read_at: now } : n))
       );
     }
     if (notif.action_url) {
@@ -300,16 +306,16 @@ export function NotificationCenter() {
                       borderRadius: 10,
                       marginBottom: 4,
                       cursor: notif.action_url ? 'pointer' : 'default',
-                      background: notif.is_read ? 'transparent' : cfg.bg,
-                      borderLeft: `3px solid ${notif.is_read ? 'transparent' : cfg.color}`,
+                      background: notif.read_at ? 'transparent' : cfg.bg,
+                      borderLeft: `3px solid ${notif.read_at ? 'transparent' : cfg.color}`,
                       transition: 'background 0.15s',
-                      opacity: notif.is_read ? 0.65 : 1,
+                      opacity: notif.read_at ? 0.65 : 1,
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLDivElement).style.background = `${cfg.color}14`;
                     }}
                     onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.background = notif.is_read
+                      (e.currentTarget as HTMLDivElement).style.background = notif.read_at
                         ? 'transparent'
                         : cfg.bg;
                     }}
@@ -333,7 +339,7 @@ export function NotificationCenter() {
                       <div
                         style={{
                           fontSize: 11.5,
-                          fontWeight: notif.is_read ? 500 : 700,
+                          fontWeight: notif.read_at ? 500 : 700,
                           color: 'var(--text-primary)',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
@@ -354,7 +360,7 @@ export function NotificationCenter() {
                           overflow: 'hidden',
                         }}
                       >
-                        {notif.message}
+                        {notif.body}
                       </div>
                     </div>
                     <div

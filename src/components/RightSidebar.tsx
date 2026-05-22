@@ -3,6 +3,55 @@ import { useState, useEffect, useCallback } from 'react';
 import { Icon } from '@/components/Icon';
 import { TRIAGE_CONFIG } from '@/lib/data';
 import { createClient } from '@/lib/supabase';
+import { playNotificationSound } from '@/lib/audio';
+
+const ALL_SPECIALTIES = [
+  'Cardiología',
+  'Cirugía General',
+  'Dermatología',
+  'Endocrinología',
+  'Gastroenterología',
+  'Ginecología & Obstetricia',
+  'Medicina de Emergencias',
+  'Medicina General',
+  'Medicina Interna',
+  'Nefrología',
+  'Neumología',
+  'Neurología',
+  'Oftalmología',
+  'Oncología',
+  'Otorrinolaringología',
+  'Pediatría',
+  'Psiquiatría',
+  'Radiología & Imágenes',
+  'Reumatología',
+  'Traumatología & Ortopedia',
+  'Urología'
+];
+
+const SPECIALTY_IMAGES: Record<string, string> = {
+  'Cardiología': '/images/specialties/CARDIOLOGIA.jfif',
+  'Cirugía General': '/images/specialties/CIRUGIA GERERAL.jfif',
+  'Dermatología': '/images/specialties/DERMATOLOGIA.jfif',
+  'Endocrinología': '/images/specialties/endocrinologia.jpg',
+  'Gastroenterología': '/images/specialties/GASTROENTEROLOGIA.png',
+  'Ginecología & Obstetricia': '/images/specialties/ginecologia-y-obstetricia.jpg',
+  'Medicina de Emergencias': '/images/specialties/MEDICINA DE EMERGENCIA.jfif',
+  'Medicina General': '/images/specialties/medicina_general_1.webp',
+  'Medicina Interna': '/images/specialties/MEDICINA INTERNA.jfif',
+  'Nefrología': '/images/specialties/NEFROLOGIA.jfif',
+  'Neumología': '/images/specialties/NEUMOLOGIA.jfif',
+  'Neurología': '/images/specialties/NEUROLOGIA.jpg',
+  'Oftalmología': '/images/specialties/OFTALMOLOGIA.jfif',
+  'Oncología': '/images/specialties/ONCOLOGIA.jfif',
+  'Otorrinolaringología': '/images/specialties/OTORRINOLARINGOLOGO.jfif',
+  'Pediatría': '/images/specialties/PEDIATRIA.jfif',
+  'Psiquiatría': '/images/specialties/PSIQUIATRIA.avif',
+  'Radiología & Imágenes': '/images/specialties/RADIOLOGIA Y IMAGENES.jfif',
+  'Reumatología': '/images/specialties/REUMATOLOGIA.jfif',
+  'Traumatología & Ortopedia': '/images/specialties/ortopedia_y_traumatologia.jpg',
+  'Urología': '/images/specialties/urologia.jpg'
+};
 
 interface RightSidebarProps {
   collapsed: boolean;
@@ -24,6 +73,13 @@ export function RightSidebar({ collapsed, onToggle, isMobile }: RightSidebarProp
   const [doctors, setDoctors] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [stats, setStats] = useState({ activePatients: 0, doctorsOnDuty: 0, labsToday: 0, imagingToday: 0 });
+
+  // Modal states
+  const [reassignModalOpen, setReassignModalOpen] = useState<string | null>(null);
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
+
+  // Master-Detail Specialty View
+  const [selectedSpecialtyView, setSelectedSpecialtyView] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const { data: tData } = await supabase
@@ -62,8 +118,8 @@ export function RightSidebar({ collapsed, onToggle, isMobile }: RightSidebarProp
 
     const { data: reqData, error: reqError } = await supabase
       .from('appointments')
-      .select('id, starts_at, reason, status, patients(first_name, last_name), professionals(title, user_profiles!professionals_user_id_fkey(full_name))')
-      .in('status', ['SCHEDULED', 'PENDING'])
+      .select('id, starts_at, reason, status, patients(first_name, last_name), professionals(id, title, user_profiles!professionals_user_id_fkey(full_name)), specialties(name)')
+      .in('status', ['PENDING'])
       .order('starts_at', { ascending: true })
       .limit(10);
     if (reqError) console.error("Error fetching appointments:", reqError);
@@ -96,13 +152,25 @@ export function RightSidebar({ collapsed, onToggle, isMobile }: RightSidebarProp
     const tInterval = setInterval(loadData, 30000);
     
     const channel = supabase.channel('right_sidebar_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          playNotificationSound('notification');
+        }
         loadData();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'triage_queue' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, () => {
         loadData();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'virtual_queue' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'triage_queue' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          playNotificationSound('alert');
+        }
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'virtual_queue' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          playNotificationSound('notification');
+        }
         loadData();
       })
       .subscribe();
@@ -115,6 +183,17 @@ export function RightSidebar({ collapsed, onToggle, isMobile }: RightSidebarProp
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     await supabase.from('appointments').update({ status: newStatus }).eq('id', id);
+    loadData();
+  };
+
+  const handleConfirmReassign = async () => {
+    if (!reassignModalOpen || !selectedDoctorId) return;
+    await supabase.from('appointments').update({ 
+      professional_id: selectedDoctorId,
+      status: 'SCHEDULED' // Automatically approve when reassigning as per professional flow
+    }).eq('id', reassignModalOpen);
+    setReassignModalOpen(null);
+    setSelectedDoctorId('');
     loadData();
   };
 
@@ -312,6 +391,84 @@ export function RightSidebar({ collapsed, onToggle, isMobile }: RightSidebarProp
             </div>
           </div>
 
+          {/* REASSIGN MODAL OVERLAY */}
+          {reassignModalOpen && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 100,
+              background: 'rgba(6, 13, 26, 0.6)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: 'fade-in 0.2s ease forwards',
+            }}>
+              <div style={{
+                background: 'var(--bg-card)', border: '1px solid var(--border-primary)',
+                borderRadius: 16, width: 420, padding: 24,
+                boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>Reasignar Profesional</h3>
+                  <button onClick={() => setReassignModalOpen(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                    <Icon name="X" size={20} />
+                  </button>
+                </div>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+                  Selecciona a un profesional en turno para reasignar y aprobar esta solicitud.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto', marginBottom: 20 }}>
+                  {doctors.length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>No hay médicos en turno</div>
+                  ) : doctors.map(doc => {
+                    const docName = doc.user_profiles?.full_name || 'Médico';
+                    const isSelected = selectedDoctorId === doc.id;
+                    return (
+                      <div
+                        key={doc.id}
+                        onClick={() => setSelectedDoctorId(doc.id)}
+                        style={{
+                          padding: '12px 16px', borderRadius: 10, cursor: 'pointer',
+                          background: isSelected ? 'rgba(124,77,255,0.1)' : 'var(--bg-surface)',
+                          border: `1px solid ${isSelected ? '#7C4DFF' : 'var(--border-secondary)'}`,
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <div style={{
+                          width: 36, height: 36, borderRadius: 8,
+                          background: 'linear-gradient(135deg, #1E88E5, #1565C0)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', fontSize: 13, fontWeight: 700,
+                        }}>
+                          {docName.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{docName}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{doc.specialties?.name || 'General'}</div>
+                        </div>
+                        {isSelected && <Icon name="CheckCircle2" size={18} style={{ color: '#7C4DFF', marginLeft: 'auto' }} />}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <button onClick={() => setReassignModalOpen(null)} style={{
+                    flex: 1, padding: '10px 0', borderRadius: 8,
+                    background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)',
+                    color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer'
+                  }}>Cancelar</button>
+                  <button 
+                    onClick={handleConfirmReassign}
+                    disabled={!selectedDoctorId}
+                    style={{
+                      flex: 1, padding: '10px 0', borderRadius: 8,
+                      background: '#7C4DFF', border: 'none',
+                      color: '#fff', fontWeight: 600, cursor: selectedDoctorId ? 'pointer' : 'not-allowed',
+                      opacity: selectedDoctorId ? 1 : 0.5
+                    }}
+                  >Reasignar y Aprobar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Content area */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '32px 32px' }}>
             <div style={{ maxWidth: 1200, margin: '0 auto' }}>
@@ -360,74 +517,147 @@ export function RightSidebar({ collapsed, onToggle, isMobile }: RightSidebarProp
                       <div style={{ fontSize: 13, opacity: 0.6 }}>Las nuevas solicitudes de la App aparecerán aquí en tiempo real</div>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 16 }}>
-                      {pendingRequests.map((req) => {
-                        const pat = req.patients ? `${req.patients.first_name} ${req.patients.last_name}` : 'Paciente';
-                        const doc = req.professionals ? `${req.professionals.title || ''} ${req.professionals.user_profiles?.full_name || ''}`.trim() : 'Sin asignar';
-                        const statusMap: Record<string, { label: string; color: string }> = {
-                          REQUESTED: { label: 'Pendiente', color: '#FF9800' },
-                          PENDING: { label: 'Pendiente', color: '#FF9800' },
-                          SCHEDULED: { label: 'Programada', color: '#1E88E5' },
-                        };
-                        const st = statusMap[req.status] || { label: req.status, color: '#607D8B' };
-                        return (
-                          <div key={req.id} style={{
-                            padding: '18px 20px',
-                            background: 'var(--bg-card)',
-                            border: `1px solid ${st.color}25`,
-                            borderLeft: `4px solid ${st.color}`,
-                            borderRadius: 12,
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
-                                background: `${st.color}15`, color: st.color, letterSpacing: '0.06em',
-                              }}>{st.label}</span>
-                              <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-                                {new Date(req.starts_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })}{' '}
-                                {new Date(req.starts_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                              </span>
+                    <>
+                      {(() => {
+                        const grouped = pendingRequests.reduce((acc, req) => {
+                          const spec = req.specialties?.name || 'Medicina General';
+                          if (!acc[spec]) acc[spec] = [];
+                          acc[spec].push(req);
+                          return acc;
+                        }, {} as Record<string, any[]>);
+
+                        if (!selectedSpecialtyView) {
+                          // MASTER VIEW: Grid of Specialties
+                          return (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                              {ALL_SPECIALTIES.map((specialtyName) => {
+                                const requests = grouped[specialtyName] || [];
+                                const bgImage = SPECIALTY_IMAGES[specialtyName];
+                                return (
+                                <div
+                                  key={specialtyName}
+                                  onClick={() => setSelectedSpecialtyView(specialtyName)}
+                                  style={{
+                                    backgroundImage: bgImage 
+                                      ? `linear-gradient(to bottom, rgba(6,13,26,0.3), rgba(6,13,26,0.9)), url('${encodeURI(bgImage)}')` 
+                                      : 'none', 
+                                    backgroundColor: 'var(--bg-card)',
+                                    backgroundSize: 'cover',
+                                    backgroundPosition: 'center center',
+                                    backgroundRepeat: 'no-repeat',
+                                    border: '1px solid var(--border-primary)',
+                                    borderRadius: 16, padding: '20px 24px', cursor: 'pointer',
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                                    minHeight: 160
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.transform = 'translateY(-2px)';
+                                    e.currentTarget.style.borderColor = '#7C4DFF';
+                                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(124,77,255,0.15)';
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.borderColor = 'var(--border-primary)';
+                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.05)';
+                                  }}
+                                >
+                                  {!bgImage && (
+                                    <div style={{ width: 48, height: 48, borderRadius: 12, background: '#7C4DFF15', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                                      <Icon name="Stethoscope" size={24} style={{ color: '#7C4DFF' }} />
+                                    </div>
+                                  )}
+                                  <h2 style={{ fontSize: 16, fontWeight: 700, color: bgImage ? '#fff' : 'var(--text-primary)', textAlign: 'center', marginBottom: 8, textShadow: bgImage ? '0 2px 4px rgba(0,0,0,0.8)' : 'none' }}>{specialtyName}</h2>
+                                  <div style={{ background: requests.length > 0 ? '#FF9800' : 'rgba(255,255,255,0.1)', color: requests.length > 0 ? '#fff' : (bgImage ? '#fff' : 'var(--text-muted)'), border: requests.length === 0 && !bgImage ? '1px solid var(--border-secondary)' : 'none', fontSize: 13, fontWeight: 700, padding: '4px 12px', borderRadius: 20 }}>
+                                    {requests.length} pendiente{requests.length !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                              )})}
                             </div>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>{pat}</div>
-                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Icon name="Stethoscope" size={12} />
-                              {doc}
-                            </div>
-                            {req.reason && (
-                              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, fontStyle: 'italic', padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 6 }}>
-                                "{req.reason}"
+                          );
+                        } else {
+                          // DETAIL VIEW: Table for selected specialty
+                          const requests = grouped[selectedSpecialtyView] || [];
+                          return (
+                            <div className="animate-fade-in">
+                              <button
+                                onClick={() => setSelectedSpecialtyView(null)}
+                                style={{
+                                  background: 'transparent', border: 'none', color: 'var(--text-muted)',
+                                  display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600,
+                                  cursor: 'pointer', marginBottom: 20, padding: 0
+                                }}
+                              >
+                                <Icon name="ArrowLeft" size={16} /> Volver a Especialidades
+                              </button>
+                              
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid var(--border-primary)' }}>
+                                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#7C4DFF15', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Icon name="Stethoscope" size={16} style={{ color: '#7C4DFF' }} />
+                                </div>
+                                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{selectedSpecialtyView}</h2>
+                                <span style={{ fontSize: 12, fontWeight: 700, background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', padding: '2px 8px', borderRadius: 12, color: 'var(--text-muted)' }}>
+                                  {requests.length} en espera
+                                </span>
                               </div>
-                            )}
-                            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                              <button onClick={() => handleUpdateStatus(req.id, 'SCHEDULED')} style={{
-                                flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 600,
-                                background: '#4CAF5015', border: '1px solid #4CAF5030',
-                                borderRadius: 8, cursor: 'pointer', color: '#4CAF50',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                              }}>
-                                <Icon name="Check" size={13} /> Aprobar
-                              </button>
-                              <button style={{
-                                flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 600,
-                                background: '#FF980015', border: '1px solid #FF980030',
-                                borderRadius: 8, cursor: 'pointer', color: '#FF9800',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                              }}>
-                                <Icon name="RefreshCw" size={13} /> Reasignar
-                              </button>
-                              <button onClick={() => handleUpdateStatus(req.id, 'CANCELLED')} style={{
-                                flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 600,
-                                background: '#F4433615', border: '1px solid #F4433630',
-                                borderRadius: 8, cursor: 'pointer', color: '#F44336',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                              }}>
-                                <Icon name="X" size={13} /> Rechazar
-                              </button>
+                              
+                              {requests.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '60px 0', border: '1px dashed var(--border-secondary)', borderRadius: 12, background: 'var(--bg-card)' }}>
+                                  <Icon name="CheckCircle2" size={32} style={{ color: '#4CAF50', marginBottom: 12, opacity: 0.5 }} />
+                                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Todo al día</div>
+                                  <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>No hay solicitudes pendientes en {selectedSpecialtyView}.</div>
+                                </div>
+                              ) : (
+                                <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid var(--border-primary)', background: 'var(--bg-card)' }}>
+                                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                    <thead>
+                                      <tr style={{ borderBottom: '1px solid var(--border-primary)', background: 'var(--bg-surface)' }}>
+                                        <th style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Fecha / Hora</th>
+                                        <th style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Paciente</th>
+                                        <th style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Médico Asignado</th>
+                                        <th style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Motivo</th>
+                                        <th style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textAlign: 'right' }}>Acciones</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {requests.map((req: any) => {
+                                        const pat = req.patients ? `${req.patients.first_name} ${req.patients.last_name}` : 'Paciente';
+                                        const doc = req.professionals ? `${req.professionals.title || ''} ${req.professionals.user_profiles?.full_name || ''}`.trim() : 'Sin asignar';
+                                        return (
+                                          <tr key={req.id} style={{ borderBottom: '1px solid var(--border-secondary)', transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-surface)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                            <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                              {new Date(req.starts_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}{' '}
+                                              <span style={{ color: 'var(--text-muted)' }}>{new Date(req.starts_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{pat}</td>
+                                            <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>{doc}</td>
+                                            <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-secondary)', fontStyle: req.reason ? 'italic' : 'normal' }}>{req.reason ? `"${req.reason}"` : '--'}</td>
+                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                                                <button onClick={() => handleUpdateStatus(req.id, 'SCHEDULED')} title="Aprobar" style={{ width: 32, height: 32, borderRadius: 6, background: '#4CAF5015', border: '1px solid #4CAF5030', color: '#4CAF50', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#4CAF5025'} onMouseLeave={e => e.currentTarget.style.background = '#4CAF5015'}>
+                                                  <Icon name="Check" size={15} />
+                                                </button>
+                                                <button onClick={() => { setReassignModalOpen(req.id); setSelectedDoctorId(req.professionals?.id || ''); }} title="Reasignar" style={{ width: 32, height: 32, borderRadius: 6, background: '#FF980015', border: '1px solid #FF980030', color: '#FF9800', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#FF980025'} onMouseLeave={e => e.currentTarget.style.background = '#FF980015'}>
+                                                  <Icon name="RefreshCw" size={15} />
+                                                </button>
+                                                <button onClick={() => handleUpdateStatus(req.id, 'CANCELLED')} title="Rechazar" style={{ width: 32, height: 32, borderRadius: 6, background: '#F4433615', border: '1px solid #F4433630', color: '#F44336', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#F4433625'} onMouseLeave={e => e.currentTarget.style.background = '#F4433615'}>
+                                                  <Icon name="X" size={15} />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        }
+                      })()}
+                    </>
                   )}
                 </div>
               )}

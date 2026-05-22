@@ -205,7 +205,7 @@ export function ImagingPage() {
       )}
 
       {/* Main Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Imágenes — RIS/PACS</h1>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Sistema de Información Radiológica conectado a Base de Datos en Tiempo Real</p>
@@ -218,7 +218,7 @@ export function ImagingPage() {
       </div>
 
       {/* Statistics Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 24 }}>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5 mb-6">
         {[
           { label: 'Rayos X Totales', value: rxCount, color: '#607D8B' },
           { label: 'Ecografías Totales', value: usCount, color: '#00BCD4' },
@@ -325,7 +325,7 @@ export function ImagingPage() {
             <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }}>Solicita: <strong style={{color: 'var(--text-primary)'}}>{getDoctorName(currentOrder)}</strong></div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Técnica utilizada</label>
               <input 
@@ -388,9 +388,9 @@ export function ImagingPage() {
 
       {/* ─── Modal Dialog: Nueva Solicitud ─── */}
       {showModal && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 100 }} onClick={() => setShowModal(false)} />
-          <div className="glass-card animate-fade-in" style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', padding: 24, width: '100%', maxWidth: 500, zIndex: 101 }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={() => setShowModal(false)} />
+          <div className="glass-card animate-fade-in" style={{ position: 'relative', padding: 24, width: '90%', maxWidth: 500, zIndex: 101, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
               <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="ScanLine" size={18} style={{ color: 'var(--color-blue-light)' }} /> Nueva Solicitud de Imagen
@@ -412,7 +412,7 @@ export function ImagingPage() {
                   {doctors.map(d => <option key={d.id} value={d.id}>{d.title} {d.user_profiles?.full_name}</option>)}
                 </select>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 5 }}>Modalidad *</label>
                   <select className="input-field" value={newOrder.modality} onChange={e => setNewOrder({...newOrder, modality: e.target.value as any})}>
@@ -448,7 +448,7 @@ export function ImagingPage() {
               </button>
             </div>
           </div>
-        </>
+        </div>
       )}
     </>
   );

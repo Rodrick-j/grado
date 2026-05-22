@@ -129,7 +129,11 @@ export default function LoginPage() {
     }
     setLookingUp(true);
     try {
-      const res = await fetch(`/api/lookup-user?email=${encodeURIComponent(emailVal)}`);
+      const res = await fetch(`/api/lookup-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailVal })
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.found) {
@@ -200,6 +204,49 @@ export default function LoginPage() {
           -webkit-text-fill-color:#fff !important; caret-color:#00BCD4;
         }
         input::placeholder { color:rgba(255,255,255,0.22) !important; }
+        
+        /* RESPONSIVE STYLES */
+        .login-top-bar { flex-direction: row; }
+        .login-main-row { flex-direction: row; }
+        .login-branding { align-items: flex-start; text-align: left; }
+        .login-branding p { text-align: left; }
+        .login-stats { flex-wrap: nowrap; }
+        .login-right-panel { display: flex; }
+        .login-bottom-bar { flex-direction: row; }
+        
+        @media (max-width: 1100px) {
+          .login-main-row {
+            flex-direction: column !important;
+            padding: 20px 16px !important;
+            gap: 40px !important;
+          }
+          .login-branding {
+            align-items: center !important;
+            text-align: center !important;
+          }
+          .login-branding p {
+            text-align: center !important;
+          }
+          .login-stats {
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+          }
+          .login-right-panel {
+            display: none !important; /* Ocultar panel derecho en móviles para priorizar el login */
+          }
+          .login-top-bar {
+            flex-direction: column !important;
+            gap: 12px !important;
+            padding: 16px !important;
+            text-align: center !important;
+          }
+          .login-bottom-bar {
+            flex-direction: column !important;
+            gap: 10px !important;
+            text-align: center !important;
+            padding: 16px !important;
+          }
+        }
       `}</style>
 
       <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column',
@@ -208,9 +255,9 @@ export default function LoginPage() {
         {/* BG */}
         <div style={{ position:'absolute', inset:0, zIndex:0,
           backgroundImage:'url(/hospital-bg.png)', backgroundSize:'cover', backgroundPosition:'center 25%',
-          filter:'brightness(0.28) saturate(0.65)' }} />
+          filter:'brightness(0.65) saturate(0.9)' }} />
         <div style={{ position:'absolute', inset:0, zIndex:1,
-          background:'linear-gradient(160deg,rgba(4,14,32,0.75) 0%,rgba(4,14,32,0.88) 60%,rgba(4,14,32,0.96) 100%)' }} />
+          background:'linear-gradient(160deg,rgba(4,14,32,0.4) 0%,rgba(4,14,32,0.6) 60%,rgba(4,14,32,0.85) 100%)' }} />
         <div style={{ position:'absolute', inset:0, zIndex:2, pointerEvents:'none',
           backgroundImage:`linear-gradient(rgba(0,188,212,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,188,212,0.025) 1px,transparent 1px)`,
           backgroundSize:'70px 70px' }} />
@@ -222,16 +269,16 @@ export default function LoginPage() {
           bottom:'-150px', right:'-100px', zIndex:2, pointerEvents:'none', animation:'float2 11s ease-in-out infinite' }} />
 
         {/* TOP BAR */}
-        <div style={{ position:'relative', zIndex:10, display:'flex', alignItems:'center',
+        <div className="login-top-bar" style={{ position:'relative', zIndex:10, display:'flex', alignItems:'center',
           justifyContent:'space-between', padding:'16px 36px',
           borderBottom:'1px solid rgba(255,255,255,0.05)',
           background:'rgba(4,14,32,0.5)', backdropFilter:'blur(12px)', ...fadeStyle(0) }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ width:34, height:34, borderRadius:10,
-              background:'linear-gradient(135deg,#00BCD4,#1E88E5)',
               display:'flex', alignItems:'center', justifyContent:'center',
-              boxShadow:'0 0 14px rgba(0,188,212,0.3)' }}>
-              <Icon name="Heart" size={17} style={{ color:'#fff' }} />
+              background: 'rgba(255,255,255,0.05)',
+              boxShadow:'0 0 14px rgba(0,188,212,0.2)' }}>
+              <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24, objectFit: 'contain' }} />
             </div>
             <div>
               <div style={{ fontSize:12, fontWeight:800, color:'#fff', letterSpacing:'0.1em' }}>PROJECT FARO</div>
@@ -257,11 +304,11 @@ export default function LoginPage() {
         </div>
 
         {/* MAIN ROW */}
-        <div style={{ position:'relative', zIndex:10, flex:1, display:'flex',
+        <div className="login-main-row" style={{ position:'relative', zIndex:10, flex:1, display:'flex',
           alignItems:'center', padding:'28px 36px', gap:32 }}>
 
           {/* LEFT: Branding */}
-          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:24, ...fadeStyle(0.1) }}>
+          <div className="login-branding" style={{ flex:1, display:'flex', flexDirection:'column', gap:24, ...fadeStyle(0.1) }}>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <div style={{ height:1, width:32, background:'linear-gradient(90deg,transparent,#00BCD4)' }} />
               <span style={{ fontSize:10, color:'#00BCD4', fontWeight:700, letterSpacing:'0.2em' }}>SISTEMA HOSPITALARIO INTEGRADO</span>
@@ -281,7 +328,7 @@ export default function LoginPage() {
             </div>
             
             {/* Quick stats row */}
-            <div style={{ display:'flex', gap:9, maxWidth:420 }}>
+            <div className="login-stats" style={{ display:'flex', gap:9, maxWidth:420, width: '100%' }}>
               {[
                 {icon:'Calendar', value:'115', label:'Años', color:'#00BCD4'},
                 {icon:'Stethoscope', value:'20', label:'Especialidades', color:'#42A5F5'},
@@ -345,10 +392,10 @@ export default function LoginPage() {
                       border:'1px solid rgba(30,136,229,0.07)', borderBottomColor:'rgba(30,136,229,0.35)',
                       animation:'spinRing 5s linear infinite reverse' }} />
                     <div style={{ width:'100%', height:'100%', borderRadius:18,
-                      background:'linear-gradient(135deg,#00BCD4,#1E88E5)',
+                      background:'rgba(255,255,255,0.05)',
                       display:'flex', alignItems:'center', justifyContent:'center',
-                      boxShadow:'0 0 32px rgba(0,188,212,0.35)' }}>
-                      <Icon name="Heart" size={28} style={{ color:'#fff' }} />
+                      boxShadow:'0 0 32px rgba(0,188,212,0.15)' }}>
+                      <img src="/logo.png" alt="Logo" style={{ width: '70%', height: '70%', objectFit: 'contain' }} />
                     </div>
                   </div>
                 </div>
@@ -459,7 +506,7 @@ export default function LoginPage() {
           </div>
 
           {/* RIGHT: Live Operations Panel */}
-          <div style={{ flex:1, display:'flex', flexDirection:'column', gap:16, alignItems:'flex-end', ...fadeStyle(0.3) }}>
+          <div className="login-right-panel" style={{ flex:1, flexDirection:'column', gap:16, alignItems:'flex-end', ...fadeStyle(0.3) }}>
             <div style={{ width:'100%', maxWidth:330, background:'rgba(4,14,32,0.7)',
               backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:20, padding:22,
               boxShadow:'0 20px 40px rgba(0,0,0,0.5)' }}>
@@ -511,7 +558,7 @@ export default function LoginPage() {
         </div>
 
         {/* BOTTOM BAR */}
-        <div style={{ position:'relative', zIndex:10, padding:'14px 36px',
+        <div className="login-bottom-bar" style={{ position:'relative', zIndex:10, padding:'14px 36px',
           background:'rgba(4,14,32,0.85)', backdropFilter:'blur(12px)',
           borderTop:'1px solid rgba(255,255,255,0.05)',
           display:'flex', alignItems:'center', justifyContent:'space-between', ...fadeStyle(0.4) }}>

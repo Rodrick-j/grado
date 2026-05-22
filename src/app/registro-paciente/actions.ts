@@ -1,6 +1,4 @@
-'use server';
-
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase';
 
 export interface PatientFormData {
   ci_passport: string;
@@ -25,13 +23,7 @@ export interface PatientFormData {
 
 export async function createPatientAction(formData: PatientFormData) {
   try {
-    // Usamos SERVICE_ROLE para poder insertar independientemente de la sesión del cliente
-    // (ideal para cuando el recepcionista aún no tiene los permisos 100% configurados)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { persistSession: false, autoRefreshToken: false } }
-    );
+    const supabase = createClient();
 
     // Formatear datos
     const payload = {

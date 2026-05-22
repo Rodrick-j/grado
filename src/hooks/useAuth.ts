@@ -14,27 +14,57 @@ export function useAuth() {
   const router = useRouter();
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      if (user) {
-        setRole(user.user_metadata?.role as UserRole || 'RECEPTIONIST');
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
+        if (mounted) {
+          const sessionUser = session?.user ?? null;
+          setUser(sessionUser);
+          if (sessionUser) {
+            setRole(sessionUser.user_metadata?.role as UserRole || 'RECEPTIONIST');
+          } else if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login';
+          }
+        }
+      } catch (err) {
+        console.error("Auth init error:", err);
+        if (mounted) {
+          setUser(null);
+          if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login';
+          }
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
     };
 
-    fetchUser();
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        setRole(session.user.user_metadata?.role as UserRole || 'RECEPTIONIST');
-      } else {
-        setRole(null);
+      if (mounted) {
+        const sessionUser = session?.user ?? null;
+        setUser(sessionUser);
+        if (sessionUser) {
+          setRole(sessionUser.user_metadata?.role as UserRole || 'RECEPTIONIST');
+        } else {
+          setRole(null);
+          if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login';
+          }
+        }
+        setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [supabase.auth]);
 
   const signOut = async () => {
