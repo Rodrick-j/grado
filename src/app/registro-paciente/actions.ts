@@ -10,6 +10,7 @@ export interface PatientFormData {
   email?: string;
   address_line1?: string;
   city?: string;
+  state_province?: string;
   emergency_name?: string;
   emergency_phone?: string;
   insurance_provider?: string;
@@ -19,11 +20,13 @@ export interface PatientFormData {
   consent_signature_url?: string;
   photo_base64?: string;
   id_card_base64?: string;
+  created_by?: string;
 }
 
 export async function createPatientAction(formData: PatientFormData) {
   try {
     const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
     // Formatear datos
     const payload = {
@@ -36,6 +39,7 @@ export async function createPatientAction(formData: PatientFormData) {
       email: formData.email || null,
       address_line1: formData.address_line1 || null,
       city: formData.city || null,
+      state_province: formData.state_province || null,
       emergency_name: formData.emergency_name || null,
       emergency_phone: formData.emergency_phone || null,
       insurance_provider: formData.insurance_provider || null,
@@ -44,7 +48,8 @@ export async function createPatientAction(formData: PatientFormData) {
       consent_data: formData.consent_data,
       consent_signature_url: formData.consent_signature_url || null,
       consent_signed_at: formData.consent_treatment ? new Date().toISOString() : null,
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      created_by: formData.created_by || user?.id || null
     };
 
     const { data, error } = await supabase

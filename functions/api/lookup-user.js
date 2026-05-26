@@ -13,8 +13,8 @@ export async function onRequest(context) {
   }
 
   try {
-    const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL || 'https://otnxrygdyuklaygqelpe.supabase.co';
+    const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY || 'sb_secret_eK21zg-nyRMdHyTL8CfLCA_vzFcYwut';
 
     // Buscar usuario
     const listRes = await fetch(`${supabaseUrl}/auth/v1/admin/users?per_page=200`, {

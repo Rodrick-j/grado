@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
+import './login.css';
 
 /* ── Role config ─────────────────────────────────────────────────────────── */
 const ROLE_META: Record<string, { label: string; icon: string; color: string; greeting: string }> = {
@@ -51,7 +52,7 @@ function WelcomeCard({ profile, specialty }: { profile: { full_name: string; rol
   const meta = ROLE_META[profile.role] || { label: profile.role, icon: 'User', color: '#607D8B', greeting: 'Bienvenido al sistema' };
 
   return (
-    <div style={{
+    <div className="welcome-card-login" style={{
       padding:'14px 16px', borderRadius:12, marginBottom:18,
       background:`${meta.color}0d`, border:`1px solid ${meta.color}30`,
       borderLeft:`3px solid ${meta.color}`,
@@ -100,6 +101,7 @@ export default function LoginPage() {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [mounted, setMounted]       = useState(false);
+  const [welcomeActive, setWelcomeActive] = useState(false);
   const [focusEmail, setFocusEmail] = useState(false);
   const [focusPass, setFocusPass]   = useState(false);
 
@@ -167,7 +169,10 @@ export default function LoginPage() {
       setError('Credenciales incorrectas. Verifique su email y contraseña.');
       setLoading(false);
     } else {
-      router.push('/'); router.refresh();
+      setWelcomeActive(true);
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2500);
     }
   };
 
@@ -190,66 +195,7 @@ export default function LoginPage() {
 
   return (
     <>
-      <style>{`
-        @keyframes spinRing  { to { transform:rotate(360deg); } }
-        @keyframes pulseDot  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
-        @keyframes scanLine  { 0%{top:-2px;opacity:0} 8%{opacity:.7} 92%{opacity:.7} 100%{top:100%;opacity:0} }
-        @keyframes float1    { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-22px,32px)} }
-        @keyframes float2    { 0%,100%{transform:translate(0,0)} 50%{transform:translate(18px,-28px)} }
-        @keyframes slideDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes spin      { to{transform:rotate(360deg)} }
-        @keyframes pulseLine { 0%,100%{opacity:0.3} 50%{opacity:0.8} }
-        input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
-          -webkit-box-shadow:0 0 0 1000px rgba(4,14,32,0.99) inset !important;
-          -webkit-text-fill-color:#fff !important; caret-color:#00BCD4;
-        }
-        input::placeholder { color:rgba(255,255,255,0.22) !important; }
-        
-        /* RESPONSIVE STYLES */
-        .login-top-bar { flex-direction: row; }
-        .login-main-row { flex-direction: row; }
-        .login-branding { align-items: flex-start; text-align: left; }
-        .login-branding p { text-align: left; }
-        .login-stats { flex-wrap: nowrap; }
-        .login-right-panel { display: flex; }
-        .login-bottom-bar { flex-direction: row; }
-        
-        @media (max-width: 1100px) {
-          .login-main-row {
-            flex-direction: column !important;
-            padding: 20px 16px !important;
-            gap: 40px !important;
-          }
-          .login-branding {
-            align-items: center !important;
-            text-align: center !important;
-          }
-          .login-branding p {
-            text-align: center !important;
-          }
-          .login-stats {
-            flex-wrap: wrap !important;
-            justify-content: center !important;
-          }
-          .login-right-panel {
-            display: none !important; /* Ocultar panel derecho en móviles para priorizar el login */
-          }
-          .login-top-bar {
-            flex-direction: column !important;
-            gap: 12px !important;
-            padding: 16px !important;
-            text-align: center !important;
-          }
-          .login-bottom-bar {
-            flex-direction: column !important;
-            gap: 10px !important;
-            text-align: center !important;
-            padding: 16px !important;
-          }
-        }
-      `}</style>
-
-      <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column',
+      <div style={{ height:'100vh', display:'flex', flexDirection:'column',
         fontFamily:'Inter,sans-serif', position:'relative', overflow:'hidden', background:'#040e20' }}>
 
         {/* BG */}
@@ -270,7 +216,7 @@ export default function LoginPage() {
 
         {/* TOP BAR */}
         <div className="login-top-bar" style={{ position:'relative', zIndex:10, display:'flex', alignItems:'center',
-          justifyContent:'space-between', padding:'16px 36px',
+          justifyContent:'space-between', padding:'10px 36px',
           borderBottom:'1px solid rgba(255,255,255,0.05)',
           background:'rgba(4,14,32,0.5)', backdropFilter:'blur(12px)', ...fadeStyle(0) }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -279,10 +225,6 @@ export default function LoginPage() {
               background: 'rgba(255,255,255,0.05)',
               boxShadow:'0 0 14px rgba(0,188,212,0.2)' }}>
               <img src="/logo.png" alt="Logo" style={{ width: 24, height: 24, objectFit: 'contain' }} />
-            </div>
-            <div>
-              <div style={{ fontSize:12, fontWeight:800, color:'#fff', letterSpacing:'0.1em' }}>PROJECT FARO</div>
-              <div style={{ fontSize:9, color:'rgba(0,188,212,0.7)', fontWeight:700, letterSpacing:'0.16em' }}>HIS v2.4</div>
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:20 }}>
@@ -305,10 +247,10 @@ export default function LoginPage() {
 
         {/* MAIN ROW */}
         <div className="login-main-row" style={{ position:'relative', zIndex:10, flex:1, display:'flex',
-          alignItems:'center', padding:'28px 36px', gap:32 }}>
+          alignItems:'center', padding:'10px 36px', gap:20 }}>
 
           {/* LEFT: Branding */}
-          <div className="login-branding" style={{ flex:1, display:'flex', flexDirection:'column', gap:24, ...fadeStyle(0.1) }}>
+          <div className="login-branding" style={{ flex:1, display:'flex', flexDirection:'column', gap:16, ...fadeStyle(0.1) }}>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <div style={{ height:1, width:32, background:'linear-gradient(90deg,transparent,#00BCD4)' }} />
               <span style={{ fontSize:10, color:'#00BCD4', fontWeight:700, letterSpacing:'0.2em' }}>SISTEMA HOSPITALARIO INTEGRADO</span>
@@ -365,11 +307,11 @@ export default function LoginPage() {
           </div>
 
           {/* CENTER: LOGIN CARD */}
-          <div style={{ width:'100%', maxWidth:410, flexShrink:0, ...fadeStyle(0.2) }}>
-            <div style={{
+          <div style={{ width:'100%', maxWidth:400, flexShrink:0, ...fadeStyle(0.2) }}>
+            <div className="glass-card-center" style={{
               background:'rgba(5,15,35,0.93)', backdropFilter:'blur(28px)',
               WebkitBackdropFilter:'blur(28px)', border:'1px solid rgba(0,188,212,0.16)',
-              borderRadius:26, padding:'36px 32px 28px',
+              borderRadius:26, padding:'24px 28px 20px',
               boxShadow:'0 40px 100px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.05)',
               position:'relative', overflow:'hidden',
             }}>
@@ -382,16 +324,16 @@ export default function LoginPage() {
                 background:'linear-gradient(90deg,transparent,#00BCD4,#1E88E5,transparent)' }} />
 
               {/* Header */}
-              <div style={{ textAlign:'center', marginBottom:26 }}>
-                <div style={{ display:'flex', justifyContent:'center', marginBottom:18 }}>
-                  <div style={{ position:'relative', width:60, height:60 }}>
+              <div style={{ textAlign:'center', marginBottom:16 }}>
+                <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
+                  <div style={{ position:'relative', width:50, height:50 }}>
                     <div style={{ position:'absolute', inset:-4, borderRadius:'50%',
                       border:'1.5px solid rgba(0,188,212,0.15)', borderTopColor:'#00BCD4',
                       animation:'spinRing 2.5s linear infinite' }} />
                     <div style={{ position:'absolute', inset:-9, borderRadius:'50%',
                       border:'1px solid rgba(30,136,229,0.07)', borderBottomColor:'rgba(30,136,229,0.35)',
                       animation:'spinRing 5s linear infinite reverse' }} />
-                    <div style={{ width:'100%', height:'100%', borderRadius:18,
+                    <div style={{ width:'100%', height:'100%', borderRadius:14,
                       background:'rgba(255,255,255,0.05)',
                       display:'flex', alignItems:'center', justifyContent:'center',
                       boxShadow:'0 0 32px rgba(0,188,212,0.15)' }}>
@@ -401,17 +343,10 @@ export default function LoginPage() {
                 </div>
                 <div style={{ display:'inline-flex', alignItems:'center', gap:5,
                   padding:'3px 12px', background:'rgba(0,188,212,0.1)',
-                  border:'1px solid rgba(0,188,212,0.2)', borderRadius:20, marginBottom:10 }}>
+                  border:'1px solid rgba(0,188,212,0.2)', borderRadius:20 }}>
                   <div style={{ width:5, height:5, borderRadius:'50%', background:'#00BCD4', animation:'pulseDot 1.5s infinite' }} />
                   <span style={{ fontSize:9, fontWeight:700, color:'#00BCD4', letterSpacing:'0.18em' }}>ACCESO INSTITUCIONAL</span>
                 </div>
-                <h2 style={{ fontSize:24, fontWeight:900, color:'#fff', letterSpacing:'-0.025em', marginBottom:3 }}>
-                  Project <span style={{ background:'linear-gradient(135deg,#00BCD4,#42A5F5)',
-                    WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>FARO</span>
-                </h2>
-                <p style={{ fontSize:12, color:'rgba(255,255,255,0.35)', fontWeight:500 }}>
-                  Hospital Clínico San Juan de Dios
-                </p>
               </div>
 
               <div style={{ height:1, marginBottom:22,
@@ -558,7 +493,7 @@ export default function LoginPage() {
         </div>
 
         {/* BOTTOM BAR */}
-        <div className="login-bottom-bar" style={{ position:'relative', zIndex:10, padding:'14px 36px',
+        <div className="login-bottom-bar" style={{ position:'relative', zIndex:10, padding:'10px 36px',
           background:'rgba(4,14,32,0.85)', backdropFilter:'blur(12px)',
           borderTop:'1px solid rgba(255,255,255,0.05)',
           display:'flex', alignItems:'center', justifyContent:'space-between', ...fadeStyle(0.4) }}>
@@ -572,6 +507,34 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+      
+      {/* WELCOME ANIMATION OVERLAY */}
+      {welcomeActive && (
+        <div style={{
+          position:'fixed', inset:0, zIndex:9999,
+          background: `linear-gradient(135deg, rgba(4,14,32,0.95) 0%, ${ROLE_META[profile?.role || 'DOCTOR']?.color || '#1E88E5'}40 100%)`,
+          backdropFilter:'blur(20px)',
+          display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+          animation:'fadeIn 0.3s ease forwards'
+        }}>
+           <div style={{
+             width: 100, height: 100, borderRadius:'50%', background:`${ROLE_META[profile?.role || 'DOCTOR']?.color || '#1E88E5'}20`,
+             display:'flex', alignItems:'center', justifyContent:'center', marginBottom: 24,
+             animation:'slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards, pulseDot 2s infinite'
+           }}>
+             <Icon name={ROLE_META[profile?.role || 'DOCTOR']?.icon || 'Check'} size={48} style={{ color: ROLE_META[profile?.role || 'DOCTOR']?.color || '#1E88E5' }} />
+           </div>
+           <h1 style={{ fontSize: 32, fontWeight: 900, color: '#fff', marginBottom: 12, animation:'slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s forwards', opacity:0 }}>
+             {ROLE_META[profile?.role || 'DOCTOR']?.greeting || 'Bienvenido al sistema'}
+           </h1>
+           <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.7)', animation:'slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s forwards', opacity:0 }}>
+             {profile?.full_name || 'Autenticando usuario...'}
+           </p>
+           <div style={{ marginTop: 40, animation:'fadeIn 0.5s ease 0.6s forwards', opacity:0 }}>
+             <Icon name="Loader2" size={24} className="animate-spin" style={{ color: ROLE_META[profile?.role || 'DOCTOR']?.color || '#1E88E5' }} />
+           </div>
+        </div>
+      )}
     </>
   );
 }

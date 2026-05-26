@@ -6,6 +6,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
+import { useAuth } from '@/hooks/useAuth';
 
 // Horas del día para flujo de citas
 const HOURS = ['00h','02h','04h','06h','08h','10h','12h','14h','16h','18h','20h','22h'];
@@ -31,10 +32,10 @@ const NEON = {
 
 export function DashboardPage() {
   const supabase = createClient();
+  const { role } = useAuth();
 
   const [kpis, setKpis] = useState({
-    patients: 0, erQueue: 0, bedOccupancy: 0,
-    labPending: 0, pharmacyAlerts: 0, appointments: 0,
+    patients: 0, erQueue: 0, bedOccupancy: 0, appointments: 0,
   });
   const [triagePie, setTriagePie] = useState<{ name: string; value: number; color: string }[]>([]);
   const [specialtyBar, setSpecialtyBar] = useState<{ name: string; pacientes: number }[]>([]);
@@ -49,8 +50,6 @@ export function DashboardPage() {
       { count: patientsCount },
       { data: erData },
       { data: camasData },
-      { count: labCount },
-      { data: pharmacyData },
       { count: apptCount },
       { data: triageData },
       { data: specData },
@@ -59,8 +58,6 @@ export function DashboardPage() {
       supabase.from('patients').select('*', { count: 'exact', head: true }).eq('status', 'ACTIVE'),
       supabase.from('triage_queue').select('level').is('resolved_at', null),
       supabase.from('camas').select('estado'),
-      supabase.from('lab_orders').select('*', { count: 'exact', head: true }).in('status', ['ORDERED', 'SAMPLE_COLLECTED', 'PROCESSING']),
-      supabase.from('pharmacy_inventory').select('stock_current, stock_minimum').eq('active', true),
       supabase.from('appointments').select('*', { count: 'exact', head: true })
         .gte('starts_at', new Date().toISOString().split('T')[0])
         .lt('starts_at', new Date(Date.now() + 86400000).toISOString().split('T')[0]),
@@ -75,14 +72,11 @@ export function DashboardPage() {
     const totalCamas = camasData?.length || 0;
     const ocupadas = camasData?.filter(c => c.estado === 'OCUPADA').length || 0;
     const bedOccupancy = totalCamas > 0 ? Math.round((ocupadas / totalCamas) * 100) : 0;
-    const pharmacyAlerts = pharmacyData?.filter(d => d.stock_current < d.stock_minimum * 0.5).length || 0;
 
     setKpis({
       patients: patientsCount || 0,
       erQueue: erData?.length || 0,
       bedOccupancy,
-      labPending: labCount || 0,
-      pharmacyAlerts,
       appointments: apptCount || 0,
     });
 
@@ -104,14 +98,18 @@ export function DashboardPage() {
 
   useEffect(() => { fetchAll(); }, []);
 
+  // RBAC Flags
+  const isRole = (...roles: string[]) => !role || roles.includes(role);
+  const showMedical = isRole('SUPER_ADMIN', 'MEDICAL_DIRECTOR', 'DOCTOR', 'RESIDENT', 'NURSE');
+  const showReception = isRole('SUPER_ADMIN', 'MEDICAL_DIRECTOR', 'RECEPTIONIST', 'BILLING', 'DOCTOR', 'RESIDENT');
+  const showAdmin = isRole('SUPER_ADMIN', 'MEDICAL_DIRECTOR');
+
   const kpiCards = [
-    { id: 'patients', label: 'Pacientes Activos', value: kpis.patients, icon: 'Users', accent: '#1565C0', barGradient: 'linear-gradient(135deg, #1E88E5, #42A5F5)' },
-    { id: 'er', label: 'En Espera (ER)', value: kpis.erQueue, icon: 'Siren', accent: '#C62828', barGradient: 'linear-gradient(135deg, #F44336, #E91E63)' },
-    { id: 'appts', label: 'Citas Hoy', value: kpis.appointments, icon: 'CalendarDays', accent: '#5E35B1', barGradient: 'linear-gradient(135deg, #7C4DFF, #B388FF)' },
-    { id: 'beds', label: 'Ocupación Camas', value: `${kpis.bedOccupancy}%`, icon: 'BedDouble', accent: '#E65100', barGradient: 'linear-gradient(135deg, #FF9100, #FFD740)' },
-    { id: 'labs', label: 'Labs Pendientes', value: kpis.labPending, icon: 'FlaskConical', accent: '#2E7D32', barGradient: 'linear-gradient(135deg, #00C853, #69F0AE)' },
-    { id: 'pharm', label: 'Alertas Farmacia', value: kpis.pharmacyAlerts, icon: 'AlertTriangle', accent: '#C62828', barGradient: 'linear-gradient(135deg, #FF1744, #FF6E40)' },
-  ];
+    { id: 'patients', label: 'Pacientes Activos', value: kpis.patients, icon: 'Users', accent: '#1565C0', barGradient: 'linear-gradient(135deg, #1E88E5, #42A5F5)', desc: 'Total de pacientes internados o en tratamiento.', show: true },
+    { id: 'er', label: 'En Espera (ER)', value: kpis.erQueue, icon: 'Siren', accent: '#C62828', barGradient: 'linear-gradient(135deg, #F44336, #E91E63)', desc: 'Pacientes en sala de emergencias.', show: showMedical },
+    { id: 'appts', label: 'Citas Hoy', value: kpis.appointments, icon: 'CalendarDays', accent: '#5E35B1', barGradient: 'linear-gradient(135deg, #7C4DFF, #B388FF)', desc: 'Consultas médicas del día.', show: showReception },
+    { id: 'beds', label: 'Ocupación Camas', value: `${kpis.bedOccupancy}%`, icon: 'BedDouble', accent: '#E65100', barGradient: 'linear-gradient(135deg, #FF9100, #FFD740)', desc: 'Porcentaje de camas en uso.', show: showMedical },
+  ].filter(k => k.show);
 
   const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -124,17 +122,20 @@ export function DashboardPage() {
         }
         .dash-kpi {
           position: relative;
-          padding: 20px;
+          padding: 16px 20px;
           border-radius: 14px;
           background: var(--bg-card);
           border: 1px solid var(--border-secondary);
           overflow: hidden;
           cursor: default;
+          display: flex;
+          flex-direction: column;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .dash-kpi:hover {
-          transform: translateY(-3px);
-          box-shadow: var(--shadow-card);
+          transform: translateY(-2px);
+          box-shadow: 0 8px 20px -8px rgba(0,0,0,0.15);
+          border-color: var(--border-primary);
         }
         .dash-kpi-bar {
           position: absolute;
@@ -143,8 +144,8 @@ export function DashboardPage() {
           border-radius: 14px 14px 0 0;
         }
         .dash-kpi-icon {
-          width: 42px; height: 42px;
-          border-radius: 11px;
+          width: 34px; height: 34px;
+          border-radius: 9px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -154,32 +155,43 @@ export function DashboardPage() {
           transform: scale(1.08);
         }
         .dash-kpi-value {
-          font-size: 28px;
+          font-size: 24px;
           font-weight: 800;
           line-height: 1;
-          margin-bottom: 5px;
+          margin-bottom: 3px;
+        }
+        .dash-kpi-desc {
+          font-size: 10.5px;
+          color: var(--text-muted);
+          margin-top: 6px;
+          line-height: 1.3;
+          opacity: 0.85;
         }
         .dash-chart {
           background: var(--bg-card);
           border: 1px solid var(--border-secondary);
           border-radius: 14px;
-          padding: 22px;
+          padding: 18px 20px;
           transition: all 0.3s ease;
+          display: flex;
+          flex-direction: column;
         }
         .dash-chart:hover {
           border-color: var(--border-primary);
           box-shadow: var(--shadow-card);
         }
         .dash-chart-title {
-          font-size: 15px;
+          font-size: 16px;
           font-weight: 700;
           color: var(--text-primary);
           letter-spacing: -0.01em;
+          margin-bottom: 4px;
         }
         .dash-chart-sub {
-          font-size: 11px;
+          font-size: 12px;
           color: var(--text-muted);
-          margin-top: 2px;
+          line-height: 1.4;
+          max-width: 90%;
         }
         .dash-chart-badge {
           width: 32px; height: 32px;
@@ -235,7 +247,7 @@ export function DashboardPage() {
           </div>
           <div>
             <h1 style={{ fontSize: 23, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em', lineHeight: 1.1 }}>
-              Dashboard Operacional
+              Centro de Mando
             </h1>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               Hospital San Juan de Dios · {today}
@@ -256,21 +268,22 @@ export function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {kpiCards.map(kpi => (
           <div key={kpi.id} className="dash-kpi">
             <div className="dash-kpi-bar" style={{ background: kpi.barGradient }} />
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
               <div className="dash-kpi-icon" style={{
                 background: `${kpi.accent}15`,
                 border: `1px solid ${kpi.accent}30`,
               }}>
-                <Icon name={kpi.icon} size={18} style={{ color: kpi.accent }} />
+                <Icon name={kpi.icon} size={20} style={{ color: kpi.accent }} />
               </div>
-              {loading && <Icon name="Loader2" size={12} className="animate-spin" style={{ color: 'var(--text-muted)' }} />}
+              {loading && <Icon name="Loader2" size={14} className="animate-spin" style={{ color: 'var(--text-muted)' }} />}
             </div>
             <div className="dash-kpi-value" style={{ color: kpi.accent }}>{kpi.value}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{kpi.label}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{kpi.label}</div>
+            <div className="dash-kpi-desc">{kpi.desc}</div>
           </div>
         ))}
       </div>
@@ -278,17 +291,18 @@ export function DashboardPage() {
       {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         {/* Citas por hora */}
-        <div className="dash-chart lg:col-span-2">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        {showReception && (
+        <div className={`dash-chart ${showMedical ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Citas Programadas — Hoy</h2>
-              <p className="dash-chart-sub">Distribución por hora del día</p>
+              <p className="dash-chart-sub">Muestra la distribución del volumen de citas médicas programadas a lo largo de las distintas horas del día actual, permitiendo identificar los picos de mayor afluencia en el centro médico.</p>
             </div>
             <div className="dash-chart-badge" style={{ background: `${NEON.purple}15`, border: `1px solid ${NEON.purple}25` }}>
               <Icon name="TrendingUp" size={14} style={{ color: NEON.purple }} />
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={195}>
+          <ResponsiveContainer width="99%" height={195}>
             <AreaChart data={HOURS.map(h => {
               const hour = parseInt(h);
               const count = recentAppointments.filter(a => {
@@ -317,13 +331,15 @@ export function DashboardPage() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        )}
 
         {/* Triage Pie */}
-        <div className="dash-chart">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        {showMedical && (
+        <div className={`dash-chart ${!showReception ? 'lg:col-span-3' : ''}`}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Triage Manchester</h2>
-              <p className="dash-chart-sub">Emergencias activas en cola</p>
+              <p className="dash-chart-sub">Clasificación en tiempo real de los pacientes en la sala de emergencias según la gravedad de su condición clínica (Rojo, Naranja, Amarillo, Verde, Azul).</p>
             </div>
             <div className="dash-chart-badge" style={{ background: '#F4433615', border: '1px solid #F4433625' }}>
               <Icon name="HeartPulse" size={14} style={{ color: '#F44336' }} />
@@ -338,14 +354,23 @@ export function DashboardPage() {
               <span style={{ fontSize: 10, opacity: 0.6 }}>La sala de emergencias está libre</span>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={170}>
-              <PieChart>
-                <Pie data={triagePie} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={4} strokeWidth={0}>
-                  {triagePie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                </Pie>
-                <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 10, fontSize: 12, color: 'var(--text-primary)' }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div style={{ position: 'relative', width: '100%', height: 180 }}>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', top: -5 }}>
+                <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{kpis.erQueue}</span>
+                <span style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: 6, fontWeight: 700 }}>Total en Triage</span>
+              </div>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={triagePie} cx="50%" cy="50%" innerRadius={60} outerRadius={78} dataKey="value" stroke="var(--bg-card)" strokeWidth={4} cornerRadius={6}>
+                    {triagePie.map((entry, i) => <Cell key={i} fill={entry.color} style={{ filter: `drop-shadow(0 4px 8px ${entry.color}50)` }} />)}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 12, fontSize: 12, color: 'var(--text-primary)', boxShadow: '0 12px 30px rgba(0,0,0,0.3)' }} 
+                    itemStyle={{ fontWeight: 800 }} 
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
             {triagePie.map(t => (
@@ -356,16 +381,18 @@ export function DashboardPage() {
             ))}
           </div>
         </div>
+        )}
       </div>
 
       {/* Charts Row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         {/* Camas por especialidad */}
-        <div className="dash-chart">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        {showMedical && (
+        <div className={`dash-chart ${!showReception ? 'lg:col-span-2' : ''}`}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Camas por Especialidad</h2>
-              <p className="dash-chart-sub">Distribución real de camas asignadas</p>
+              <p className="dash-chart-sub">Indica la distribución y asignación actual de las camas de hospitalización en relación a las distintas especialidades médicas (ej. Pediatría, UCI, Medicina General).</p>
             </div>
             <div className="dash-chart-badge" style={{ background: `${NEON.teal}15`, border: `1px solid ${NEON.teal}25` }}>
               <Icon name="BedDouble" size={14} style={{ color: NEON.teal }} />
@@ -379,7 +406,7 @@ export function DashboardPage() {
               <span style={{ fontSize: 12.5, fontWeight: 500 }}>Sin datos de camas</span>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="99%" height={200}>
               <BarChart data={specialtyBar} layout="vertical">
                 <defs>
                   <linearGradient id="barGrad2" x1="0" y1="0" x2="1" y2="0">
@@ -396,13 +423,15 @@ export function DashboardPage() {
             </ResponsiveContainer>
           )}
         </div>
+        )}
 
         {/* Citas recientes */}
-        <div className="dash-chart">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        {showReception && (
+        <div className={`dash-chart ${!showMedical ? 'lg:col-span-2' : ''}`}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Citas Recientes</h2>
-              <p className="dash-chart-sub">Últimas citas registradas</p>
+              <p className="dash-chart-sub">Listado cronológico de las consultas y procedimientos médicos más recientes que han sido registrados en el sistema, mostrando paciente, profesional y motivo.</p>
             </div>
             <div className="live-dot" />
           </div>
@@ -441,16 +470,18 @@ export function DashboardPage() {
             })
           )}
         </div>
+        )}
       </div>
 
       {/* Row 3 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         {/* Timeline Actividad */}
-        <div className="dash-chart">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        {showAdmin && (
+        <div className={`dash-chart ${(!showMedical && !showReception) ? 'lg:col-span-3' : ''}`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Actividad Reciente</h2>
-              <p className="dash-chart-sub">Eventos del sistema en vivo</p>
+              <p className="dash-chart-sub">Bitácora en vivo de los últimos eventos y acciones relevantes ocurridos dentro del sistema integrado, útil para auditoría y seguimiento general.</p>
             </div>
             <div className="dash-chart-badge" style={{ background: `${NEON.teal}15`, border: `1px solid ${NEON.teal}25` }}>
               <Icon name="Activity" size={14} style={{ color: NEON.teal }} />
@@ -473,13 +504,15 @@ export function DashboardPage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Quirófanos */}
-        <div className="dash-chart">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        {showMedical && (
+        <div className={`dash-chart ${!showAdmin ? 'lg:col-span-2 md:col-span-1' : ''}`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Estado de Quirófanos</h2>
-              <p className="dash-chart-sub">Salas de cirugía</p>
+              <p className="dash-chart-sub">Monitoriza el estado de ocupación de las salas de cirugía, indicando qué procedimientos están en curso, en limpieza o disponibles para programación.</p>
             </div>
             <div className="dash-chart-badge" style={{ background: `${NEON.purple}15`, border: `1px solid ${NEON.purple}25` }}>
               <Icon name="Scissors" size={14} style={{ color: NEON.purple }} />
@@ -493,13 +526,14 @@ export function DashboardPage() {
             <span style={{ fontSize: 10, opacity: 0.6 }}>Las operaciones aparecerán aquí</span>
           </div>
         </div>
+        )}
 
         {/* Guardia */}
         <div className="dash-chart">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
             <div>
               <h2 className="dash-chart-title">Personal de Guardia</h2>
-              <p className="dash-chart-sub">Líderes en turno</p>
+              <p className="dash-chart-sub">Muestra a los líderes médicos, enfermeros jefes y especialistas que se encuentran actualmente en turno para la gestión de crisis y emergencias.</p>
             </div>
             <div className="dash-chart-badge" style={{ background: `${NEON.magenta}15`, border: `1px solid ${NEON.magenta}25` }}>
               <Icon name="UserCog" size={14} style={{ color: NEON.magenta }} />

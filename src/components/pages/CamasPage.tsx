@@ -21,11 +21,15 @@ const ESTADO_CONFIG: Record<string, { color: string; label: string; icon: string
 };
 
 const TIPO_COLOR: Record<string, string> = {
-  GENERAL: '#1E88E5', UCI: '#9C27B0', NEONATAL: '#FF9800', PEDIATRIA: '#4CAF50',
-  MATERNIDAD: '#E91E63', CIRUGIA: '#F44336', OBSERVACION: '#607D8B', EMERGENCIA: '#FF5252',
+  'UTI': '#D32F2F', 'UCI': '#F44336', 'UCO': '#E53935', 'Aislamiento': '#FF5252',
+  'Clínica Varones': '#1E88E5', 'Clínica Mujeres': '#039BE5',
+  'Quirúrgica Adultos': '#8E24AA',
+  'Obstétrica': '#E91E63', 'ARO': '#C2185B', 'Pediátrica': '#4CAF50', 'Cuna': '#8BC34A', 'Incubadora (UCIN)': '#FF9800',
+  'Seguridad Psiquiátrica': '#607D8B',
+  'Shock Room': '#B71C1C', 'Observación': '#F57C00',
 };
 
-const ALAS = ['TODAS', 'Acceso Principal', 'Ala Norte', 'Ala Sur', 'Ala Este', 'Ala Oeste'];
+const ALAS = ['TODAS', 'Urgencias', 'Materno-Infantil', 'Medicina Interna', 'Bloque Quirúrgico', 'Psiquiatría', 'Cuidados Críticos'];
 const PISOS = ['TODOS', '0', '1', '2', '3', '4', '5'];
 const ESTADOS_FILTER = ['TODOS', 'DISPONIBLE', 'OCUPADA', 'MANTENIMIENTO', 'RESERVADA', 'LIMPIEZA'];
 
@@ -119,29 +123,28 @@ export default function CamasPage() {
     loadCamas();
   };
 
-  const pisoLabel: Record<number, string> = { 0: 'Planta Baja', 1: 'Piso 1', 2: 'Piso 2', 3: 'Piso 3', 4: 'Piso 4', 5: 'Piso 5 (UCI)' };
+  const pisoLabel: Record<number, string> = { 0: 'Piso 0 (Urgencias)', 1: 'Piso 1 (Materno-Infantil)', 2: 'Piso 2 (Medicina Interna)', 3: 'Piso 3 (Bloque Quirúrgico)', 4: 'Piso 4 (Psiquiatría)', 5: 'Piso 5 (Cuidados Críticos)' };
   const pisos = [...new Set(camas.map(c => c.piso))].sort();
 
   const inp = { background: '#0B1628', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'white', padding: '8px 12px', fontSize: 12, outline: 'none', fontFamily: 'Inter, sans-serif' };
 
   return (
     <div className="animate-fade-in" style={{ maxWidth: 1400, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <button onClick={() => router.back()} className="btn-ghost" style={{ padding: '8px', marginTop: 2 }} title="Regresar">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <button onClick={() => router.back()} className="btn-ghost" style={{ padding: '8px', flexShrink: 0 }} title="Regresar">
             <Icon name="ArrowLeft" size={20} />
           </button>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="BedDouble" size={24} style={{ color: '#1E88E5' }} /> Mapa Interactivo de Camas
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className="max-sm:text-lg">
+              <Icon name="BedDouble" size={20} style={{ color: '#1E88E5', flexShrink: 0 }} /> Mapa Interactivo de Camas
             </h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Vista de planta y ocupación hospitalaria en tiempo real — {camas.length} camas registradas</p>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Vista de planta y ocupación hospitalaria en tiempo real — {camas.length} camas</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="flex gap-2 w-full lg:w-auto">
           {(['grid', 'lista'] as const).map(v => (
-            <button key={v} onClick={() => setVista(v)} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: vista === v ? 'rgba(30,136,229,0.2)' : 'transparent', color: vista === v ? '#1E88E5' : 'var(--text-muted)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s' }}>
+            <button key={v} onClick={() => setVista(v)} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: vista === v ? 'rgba(30,136,229,0.2)' : 'transparent', color: vista === v ? '#1E88E5' : 'var(--text-muted)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.2s', flex: 1, justifyContent: 'center' }}>
               <Icon name={v === 'grid' ? 'LayoutGrid' : 'List'} size={14} />
               {v === 'grid' ? 'Mapa' : 'Lista'}
             </button>

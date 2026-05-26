@@ -2,7 +2,7 @@ import { AppShell } from '@/components/AppShell';
 import DietasPage from '@/components/pages/DietasPage';
 import { RoleGuard } from '@/components/RoleGuard';
 
-export const metadata = { title: 'Nutrición y Dietas — Hospital San Juan de Dios' };
+export const metadata = { title: 'Nutrición y Dietética — Hospital San Juan de Dios' };
 
 export default function Page() {
   return (

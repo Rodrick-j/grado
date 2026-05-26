@@ -1,37 +1,72 @@
-// Utility to play sounds using the Web Audio API
-// This avoids needing external mp3 files and works reliably for UI notifications
-
-// Utility to play sounds
-// We use a simple HTMLAudioElement pointing to our generated beep.wav
-
-let audioInstance: HTMLAudioElement | null = null;
+// Utility to play synthesized sounds using the Web Audio API
+// This avoids needing external audio files, prevents 404 loading errors,
+// and works reliably for premium UI alerts and notifications.
 
 export function playNotificationSound(type: 'alert' | 'notification' = 'notification') {
   if (typeof window === 'undefined') return;
   
   try {
-    if (!audioInstance) {
-      audioInstance = new Audio('/sounds/beep.wav');
-      // Preload the audio
-      audioInstance.load();
-    }
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
     
-    // Clone node so we can play overlapping sounds if needed
-    const sound = audioInstance.cloneNode() as HTMLAudioElement;
+    const ctx = new AudioContextClass();
     
     if (type === 'alert') {
-      sound.volume = 1.0;
-      sound.play().catch(e => console.warn("Audio autoplay blocked:", e));
+      // Urgent hospital alert sound: professional triple beep alarm
+      const playBeep = (startTime: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, startTime); // A5 note
+        
+        gain.gain.setValueAtTime(0.3, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.25);
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.start(startTime);
+        osc.stop(startTime + 0.3);
+      };
       
-      // Play a second beep shortly after for an alert pattern
-      setTimeout(() => {
-        const sound2 = audioInstance!.cloneNode() as HTMLAudioElement;
-        sound2.volume = 1.0;
-        sound2.play().catch(() => {});
-      }, 150);
+      playBeep(ctx.currentTime);
+      playBeep(ctx.currentTime + 0.35);
+      playBeep(ctx.currentTime + 0.7);
     } else {
-      sound.volume = 0.6;
-      sound.play().catch(e => console.warn("Audio autoplay blocked:", e));
+      // Premium WhatsApp-like double-tone chime sound
+      // Tone 1: Bright high note E6 (1318.51 Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(1318.51, ctx.currentTime);
+      
+      gain1.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+      
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      
+      // Tone 2: Harmonious high note A6 (1760.00 Hz) slightly delayed
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1760.00, ctx.currentTime + 0.08);
+      
+      gain2.gain.setValueAtTime(0.15, ctx.currentTime + 0.08);
+      gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+      
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      
+      // Start and stop playbacks
+      osc1.start(ctx.currentTime);
+      osc1.stop(ctx.currentTime + 0.15);
+      
+      osc2.start(ctx.currentTime + 0.08);
+      osc2.stop(ctx.currentTime + 0.4);
     }
   } catch (error) {
     console.warn("Could not play notification sound", error);

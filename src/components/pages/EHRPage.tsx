@@ -1,11 +1,12 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { logAuditEvent } from '@/lib/audit';
 import { SAMPLE_ICD11_CODES } from '@/lib/data';
 import { Icon } from '@/components/Icon';
 import { useAuth } from '@/hooks/useAuth';
+import SignatureCanvas from 'react-signature-canvas';
 
 type TimelineEvent = {
   id: string;
@@ -40,6 +41,14 @@ export function EHRPage() {
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
+
+  // Media Viewer / Editor states
+  const [viewingMedia, setViewingMedia] = useState<{ type: 'photo' | 'id_card' | 'signature'; url: string | null } | null>(null);
+  const [isEditingMedia, setIsEditingMedia] = useState(false);
+  const [editFileBase64, setEditFileBase64] = useState<string | null>(null);
+  const [savingMedia, setSavingMedia] = useState(false);
+  const [hoveredItem, setHoveredItem] = useState<'photo' | 'id_card' | 'signature' | null>(null);
+  const sigCanvasRef = useRef<any>(null);
   
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -54,6 +63,11 @@ export function EHRPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  
+  // Pagination & Filters
+  const [currentPage, setCurrentPage] = useState(1);
+  const [dateFilter, setDateFilter] = useState('');
+  const ITEMS_PER_PAGE = 20;
 
   // New consult form state
   const [consultForm, setConsultForm] = useState({
@@ -101,7 +115,7 @@ export function EHRPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('patients')
-      .select('*')
+      .select('*, creator:user_profiles!patients_created_by_fkey(id, full_name, role, professionals!professionals_user_id_fkey(specialties!professionals_specialty_id_fkey(id, name)))')
       .eq('mrn', mrn)
       .single();
     
@@ -219,7 +233,7 @@ export function EHRPage() {
       .from('dispensing_log')
       .select(`
         *,
-        inventory:pharmacy_inventory(drug_name,unit),
+        lot:pharmacy_lots(batch_code, product:pharmacy_products(drug_name,unit)),
         user_profiles!pharmacist_id(full_name)
       `)
       .eq('patient_id', patient.id)
@@ -304,9 +318,9 @@ export function EHRPage() {
         date: dispDate.toLocaleDateString(),
         time: dispDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         type: 'PHARMACY',
-        title: `Dispensación de Farmacia — ${d.inventory?.drug_name || 'Medicamento'}`,
+        title: `Dispensación de Farmacia — ${d.lot?.product?.drug_name || 'Medicamento'}`,
         doctor: docName,
-        summary: `Cantidad: ${d.quantity_dispensed} ${d.inventory?.unit || 'u'} · Notas: ${d.notes || 'Sin observaciones'}`,
+        summary: `Cantidad: ${d.quantity_dispensed} ${d.lot?.product?.unit || 'u'} (Lote: ${d.lot?.batch_code}) · Notas: ${d.notes || 'Sin observaciones'}`,
         locked: true,
         rawDetails: d,
       });
@@ -363,6 +377,7 @@ export function EHRPage() {
     
     if (!error && data) {
       setSearchResults(data);
+      setCurrentPage(1); // Reset to first page on search
     }
     setSearching(false);
   };
@@ -379,6 +394,121 @@ export function EHRPage() {
       case 'HOSPITALIZED': return { label: 'Hospitalizado', color: '#1E88E5' };
       case 'DISCHARGED': return { label: 'De Alta', color: '#FF9800' };
       default: return { label: status, color: '#9C27B0' };
+    }
+  };
+
+  const getRoleLabel = (role: string) => {
+    return {'RECEPTIONIST': 'Recepción', 'SUPER_ADMIN': 'Administrador', 'DOCTOR': 'Médico', 'NURSE': 'Enfermería', 'SPECIALIST': 'Especialista'}[role] || role;
+  };
+
+  const handleSaveMedia = async () => {
+    if (!viewingMedia || !patient) return;
+    
+    setSavingMedia(true);
+    try {
+      let finalUrl = null;
+      const patientId = patient.id;
+      
+      if (viewingMedia.type === 'signature') {
+        if (!sigCanvasRef.current) {
+          alert('Error al acceder al panel de firma.');
+          setSavingMedia(false);
+          return;
+        }
+        if (sigCanvasRef.current.isEmpty()) {
+          alert('Por favor, dibuje la firma antes de guardar.');
+          setSavingMedia(false);
+          return;
+        }
+        const signatureBase64 = sigCanvasRef.current.getTrimmedCanvas().toDataURL('image/png');
+        
+        const base64Data = signatureBase64.split(',')[1];
+        const binaryString = window.atob(base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'image/png' });
+        
+        const { error: uploadErr } = await supabase.storage
+          .from('patients')
+          .upload(`${patientId}/signature.png`, blob, {
+            contentType: 'image/png',
+            upsert: true
+          });
+          
+        if (uploadErr) {
+          throw new Error(`Error al subir firma: ${uploadErr.message}`);
+        }
+        
+        const { data: publicUrlData } = supabase.storage.from('patients').getPublicUrl(`${patientId}/signature.png`);
+        finalUrl = publicUrlData.publicUrl;
+      } else {
+        if (!editFileBase64) {
+          alert('Por favor, seleccione un archivo.');
+          setSavingMedia(false);
+          return;
+        }
+        
+        const fileName = viewingMedia.type === 'photo' ? 'photo' : 'id_card';
+        const base64Data = editFileBase64.split(',')[1];
+        const binaryString = window.atob(base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'image/png' });
+        
+        const { error: uploadErr } = await supabase.storage
+          .from('patients')
+          .upload(`${patientId}/${fileName}.png`, blob, {
+            contentType: 'image/png',
+            upsert: true
+          });
+          
+        if (uploadErr) {
+          throw new Error(`Error al subir archivo: ${uploadErr.message}`);
+        }
+        
+        const { data: publicUrlData } = supabase.storage.from('patients').getPublicUrl(`${patientId}/${fileName}.png`);
+        finalUrl = publicUrlData.publicUrl;
+      }
+      
+      const dbFieldName = viewingMedia.type === 'photo' ? 'photo_url' : 
+                          viewingMedia.type === 'id_card' ? 'id_card_url' : 
+                          'consent_signature_url';
+                          
+      const { error: dbError } = await supabase
+        .from('patients')
+        .update({ [dbFieldName]: finalUrl })
+        .eq('id', patient.id);
+        
+      if (dbError) {
+        throw dbError;
+      }
+      
+      logAuditEvent({
+        action: 'EHR_WRITE',
+        resource_type: 'patients',
+        resource_id: patient.id,
+        outcome: 'SUCCESS',
+      });
+      
+      setPatient((prev: any) => ({
+        ...prev,
+        [dbFieldName]: finalUrl
+      }));
+      
+      setIsEditingMedia(false);
+      setEditFileBase64(null);
+      setViewingMedia(null);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Error al guardar: ${err.message || err}`);
+    } finally {
+      setSavingMedia(false);
     }
   };
 
@@ -620,8 +750,8 @@ export function EHRPage() {
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Seleccione un paciente para abrir su ficha médica electrónica</p>
         </div>
 
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 10, marginBottom: 24, maxWidth: 600 }}>
-          <div style={{ position: 'relative', flex: 1 }}>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 300px' }}>
             <Icon name="Search" size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
             <input 
               className="input-field" 
@@ -631,45 +761,112 @@ export function EHRPage() {
               onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
+          <div style={{ flex: '0 0 200px' }}>
+            <input 
+              type="date" 
+              className="input-field" 
+              style={{ width: '100%' }} 
+              value={dateFilter}
+              onChange={e => { setDateFilter(e.target.value); setCurrentPage(1); }}
+            />
+          </div>
           <button className="btn-primary" type="submit">Buscar</button>
         </form>
 
         <div className="glass-card" style={{ padding: 20 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14 }}>Listado de Pacientes</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Listado de Pacientes</h2>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Mostrando página {currentPage} de {Math.ceil(searchResults.filter(p => !dateFilter || p.created_at.startsWith(dateFilter)).length / ITEMS_PER_PAGE) || 1}
+            </div>
+          </div>
           
           {searching ? (
             <div style={{ padding: '40px 0', textAlign: 'center' }}><Icon name="Loader2" size={24} className="animate-spin" style={{ color: '#1E88E5' }} /></div>
-          ) : searchResults.length === 0 ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No se encontraron pacientes registrados.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {searchResults.map(p => (
-                <div 
-                  key={p.id} 
-                  onClick={() => router.push(`/historia-clinica?mrn=${p.mrn}`)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#1E88E5'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-secondary)'; }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(30,136,229,0.1)', border: '1px solid rgba(30,136,229,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#1E88E5' }}>
-                      {p.first_name[0]}{p.last_name[0]}
+          ) : (() => {
+            const filteredResults = searchResults.filter(p => {
+              if (!dateFilter) return true;
+              return p.created_at && p.created_at.startsWith(dateFilter);
+            });
+            const paginatedResults = filteredResults.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+            const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE) || 1;
+
+            if (filteredResults.length === 0) {
+              return <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No se encontraron pacientes registrados con los filtros actuales.</div>;
+            }
+
+            return (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {paginatedResults.map(p => (
+                    <div 
+                      key={p.id} 
+                      onClick={() => router.push(`/historia-clinica?mrn=${p.mrn}`)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', borderRadius: 10, cursor: 'pointer', transition: 'all 0.2s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#1E88E5'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-secondary)'; }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(30,136,229,0.1)', border: '1px solid rgba(30,136,229,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#1E88E5' }}>
+                          {p.first_name[0]}{p.last_name[0]}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p.first_name} {p.last_name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Cédula: {p.ci_passport} · Edad: {getAge(p.birth_date)}a · Género: {p.gender}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--color-teal)', fontWeight: 700, background: 'rgba(0,150,136,0.08)', padding: '4px 8px', borderRadius: 6 }}>
+                          {p.mrn}
+                        </div>
+                        <Icon name="ChevronRight" size={16} style={{ color: 'var(--text-muted)' }} />
+                      </div>
                     </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{p.first_name} {p.last_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Cédula: {p.ci_passport} · Edad: {getAge(p.birth_date)}a · Género: {p.gender}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--color-teal)', fontWeight: 700, background: 'rgba(0,150,136,0.08)', padding: '4px 8px', borderRadius: 6 }}>
-                      {p.mrn}
-                    </div>
-                    <Icon name="ChevronRight" size={16} style={{ color: 'var(--text-muted)' }} />
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-secondary)' }}>
+                    <button 
+                      className="btn-ghost" 
+                      onClick={() => setCurrentPage(c => Math.max(1, c - 1))}
+                      disabled={currentPage === 1}
+                      style={{ opacity: currentPage === 1 ? 0.5 : 1, padding: '6px 12px', fontSize: 13 }}
+                    >
+                      <Icon name="ArrowLeft" size={14} /> Anterior
+                    </button>
+                    
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {Array.from({ length: totalPages }).map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setCurrentPage(i + 1)}
+                          style={{
+                            width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600,
+                            background: currentPage === i + 1 ? '#1E88E5' : 'var(--bg-surface)',
+                            color: currentPage === i + 1 ? 'white' : 'var(--text-primary)',
+                            border: `1px solid ${currentPage === i + 1 ? '#1E88E5' : 'var(--border-primary)'}`,
+                            cursor: 'pointer', transition: 'all 0.2s'
+                          }}
+                        >
+                          {i + 1}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button 
+                      className="btn-ghost" 
+                      onClick={() => setCurrentPage(c => Math.min(totalPages, c + 1))}
+                      disabled={currentPage === totalPages}
+                      style={{ opacity: currentPage === totalPages ? 0.5 : 1, padding: '6px 12px', fontSize: 13 }}
+                    >
+                      Siguiente <Icon name="ArrowRight" size={14} />
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
     );
@@ -688,17 +885,17 @@ export function EHRPage() {
   
   return (
     <div className="animate-fade-in">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => router.push('/historia-clinica')} style={{ padding: 8, borderRadius: 8, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', textDecoration: 'none', background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', cursor: 'pointer' }}>
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <button onClick={() => router.push('/historia-clinica')} style={{ padding: 8, borderRadius: 8, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', textDecoration: 'none', background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', cursor: 'pointer', flexShrink: 0 }}>
             <Icon name="ArrowLeft" size={16} />
           </button>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Historia Clínica (EHR)</h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Registro Electrónico de Salud · FHIR R4 Patient Resource · Inmutable & Auditado</p>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className="max-sm:text-lg">Historia Clínica (EHR)</h1>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Registro Electrónico de Salud · FHIR R4 Patient Resource · Inmutable & Auditado</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
           <div style={{ 
             padding: '6px 12px', 
             borderRadius: 8, 
@@ -706,48 +903,244 @@ export function EHRPage() {
             border: hasAllergies ? '1px solid rgba(244,67,54,0.3)' : '1px solid rgba(76,175,80,0.3)', 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 6 
+            gap: 6,
+            flex: '1 1 auto',
+            justifyContent: 'center'
           }}>
             <Icon name={hasAllergies ? "AlertTriangle" : "CheckCircle2"} size={13} style={{ color: hasAllergies ? '#FF5252' : '#4CAF50' }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: hasAllergies ? '#FF5252' : '#4CAF50' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: hasAllergies ? '#FF5252' : '#4CAF50', whiteSpace: 'nowrap' }}>
               ALERGIAS: {allergiesBannerText}
             </span>
           </div>
-          <button className="btn-ghost" onClick={() => window.print()}><Icon name="Printer" size={14} /></button>
-          <button className="btn-primary" onClick={() => setTab('consult')}><Icon name="Plus" size={14} /> Nueva Consulta</button>
+          <button className="btn-ghost max-sm:flex-1" style={{ justifyContent: 'center' }} onClick={() => window.print()}><Icon name="Printer" size={14} /></button>
+          <button className="btn-primary max-sm:flex-1 w-full xl:w-auto" style={{ justifyContent: 'center' }} onClick={() => setTab('consult')}><Icon name="Plus" size={14} /> Nueva Consulta</button>
         </div>
       </div>
 
-      {/* Patient Header Banner */}
-      <div className="glass-card" style={{ padding: 20, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 24 }}>
-        <div style={{ width: 54, height: 54, borderRadius: 14, background: 'linear-gradient(135deg, #1E88E5, #0D47A1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: 'white', flexShrink: 0 }}>
-          {patient.first_name[0]}{patient.last_name[0]}
+      {/* Premium Patient Header Banner */}
+      <div className="glass-card" style={{ padding: 24, marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        
+        {/* Top Section: Main Identity & Stats */}
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+          {/* Profile Photo */}
+          <div 
+            style={{ 
+              width: 80, 
+              height: 80, 
+              borderRadius: 20, 
+              background: 'var(--bg-surface)', 
+              border: '2px solid var(--border-primary)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              overflow: 'hidden', 
+              flexShrink: 0, 
+              boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+              position: 'relative',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={() => setHoveredItem('photo')}
+            onMouseLeave={() => setHoveredItem(null)}
+            onClick={() => setViewingMedia({ type: 'photo', url: patient.photo_url })}
+          >
+            {patient.photo_url ? (
+              <img src={patient.photo_url} alt="Foto Paciente" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #1E88E5, #0D47A1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 800, color: 'white' }}>
+                {patient.first_name[0]}{patient.last_name[0]}
+              </div>
+            )}
+            {hoveredItem === 'photo' && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(5,10,20,0.6)',
+                backdropFilter: 'blur(3px)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+                color: '#fff',
+                transition: 'all 0.2s ease'
+              }}>
+                <Icon name="Eye" size={16} />
+                <span style={{ fontSize: 9, fontWeight: 600 }}>VER / EDITAR</span>
+              </div>
+            )}
+          </div>
+          
+          {/* Identity */}
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.02em' }}>
+                {patient.first_name} {patient.last_name}
+              </h2>
+              <span className="badge" style={{ background: `${pBadge.color}15`, color: pBadge.color, borderColor: `${pBadge.color}30`, padding: '4px 10px', fontSize: 11 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: pBadge.color, marginRight: 6 }} />
+                {pBadge.label}
+              </span>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="User" size={13} /> {patient.gender === 'MALE' ? 'Masculino' : patient.gender === 'FEMALE' ? 'Femenino' : patient.gender}, {getAge(patient.birth_date)} años</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="Calendar" size={13} /> Nacimiento: {new Date(patient.birth_date).toLocaleDateString()}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="Phone" size={13} /> {patient.phone_primary}</span>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-primary)', background: 'var(--bg-surface)', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'var(--text-muted)' }}>MRN</span> {patient.mrn}
+              </div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11, color: 'var(--text-primary)', background: 'var(--bg-surface)', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'var(--text-muted)' }}>DOC</span> {patient.ci_passport}
+              </div>
+            </div>
+          </div>
+          
+          {/* Metrics */}
+          <div style={{ display: 'flex', gap: 16 }}>
+            {[
+              { label: 'Última consulta', value: timelineEvents.find(e => e.type === 'CONSULT')?.date || 'Ninguna', color: '#1E88E5', icon: 'Clock' },
+              { label: 'Episodios', value: timelineEvents.length.toString(), color: '#4CAF50', icon: 'Activity' },
+              { label: 'Seguro médico', value: patient.insurance_provider || 'Particular', color: '#FF9800', icon: 'Shield' },
+            ].map(s => (
+              <div key={s.label} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', borderRadius: 12, padding: '12px 16px', minWidth: 120 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 10, marginBottom: 4 }}>
+                  <Icon name={s.icon} size={12} /> {s.label}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
-              {patient.first_name} {patient.last_name} — {patient.gender === 'MALE' ? 'Masculino' : patient.gender === 'FEMALE' ? 'Femenino' : patient.gender}, {getAge(patient.birth_date)} años
-            </h2>
-            <span className="badge" style={{ background: `${pBadge.color}18`, color: pBadge.color, borderColor: `${pBadge.color}30` }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: pBadge.color, marginRight: 5 }} />
-              {pBadge.label}
-            </span>
+        
+        <div style={{ height: 1, background: 'var(--border-secondary)' }} />
+        
+        {/* Bottom Section: Documents & Creator */}
+        <div style={{ display: 'flex', gap: 24, alignItems: 'stretch' }}>
+          
+          {/* Document Previews */}
+          <div style={{ display: 'flex', gap: 16, flex: 1 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>CARNET ID</span>
+              <div 
+                style={{ 
+                  width: 100, 
+                  height: 60, 
+                  borderRadius: 8, 
+                  border: '1px solid var(--border-primary)', 
+                  background: 'var(--bg-surface)', 
+                  overflow: 'hidden', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  position: 'relative',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={() => setHoveredItem('id_card')}
+                onMouseLeave={() => setHoveredItem(null)}
+                onClick={() => setViewingMedia({ type: 'id_card', url: patient.id_card_url })}
+              >
+                {patient.id_card_url ? (
+                  <img src={patient.id_card_url} alt="Carnet" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <Icon name="FileWarning" size={20} style={{ color: 'var(--text-muted)' }} />
+                )}
+                {hoveredItem === 'id_card' && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(5,10,20,0.6)',
+                    backdropFilter: 'blur(3px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 2,
+                    color: '#fff',
+                    transition: 'all 0.2s ease'
+                  }}>
+                    <Icon name="Eye" size={14} />
+                    <span style={{ fontSize: 8, fontWeight: 600 }}>VER / EDITAR</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>FIRMA DE CONSENTIMIENTO</span>
+              <div 
+                style={{ 
+                  width: 100, 
+                  height: 60, 
+                  borderRadius: 8, 
+                  border: '1px solid var(--border-primary)', 
+                  background: 'white', 
+                  overflow: 'hidden', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  position: 'relative',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={() => setHoveredItem('signature')}
+                onMouseLeave={() => setHoveredItem(null)}
+                onClick={() => setViewingMedia({ type: 'signature', url: patient.consent_signature_url })}
+              >
+                {patient.consent_signature_url ? (
+                  <img src={patient.consent_signature_url} alt="Firma" style={{ height: '100%', objectFit: 'contain', padding: 4 }} />
+                ) : (
+                  <span style={{ fontSize: 9, color: '#999' }}>Pendiente</span>
+                )}
+                {hoveredItem === 'signature' && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(5,10,20,0.6)',
+                    backdropFilter: 'blur(3px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 2,
+                    color: '#fff',
+                    transition: 'all 0.2s ease'
+                  }}>
+                    <Icon name="Eye" size={14} />
+                    <span style={{ fontSize: 8, fontWeight: 600 }}>VER / EDITAR</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          <div style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)', marginTop: 4 }}>
-            MRN: {patient.mrn} · Cédula: {patient.ci_passport} · Nacimiento: {new Date(patient.birth_date).toLocaleDateString()}
+          
+          {/* Registered By (Creator) */}
+          <div style={{ background: 'rgba(30,136,229,0.03)', border: '1px solid rgba(30,136,229,0.15)', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 16, minWidth: 280 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(30,136,229,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1E88E5' }}>
+              <Icon name="UserCheck" size={16} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 2 }}>Registrado por:</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {patient.creator?.full_name || 'Sistema'}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                <span style={{ fontSize: 11, color: '#1E88E5', fontWeight: 600 }}>
+                  {patient.creator?.professionals?.[0]?.specialties?.name || (patient.creator?.role ? getRoleLabel(patient.creator.role) : 'Registro Central')}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>•</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
+                  {new Date(patient.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
           </div>
+          
         </div>
-        {[
-          { label: 'Última consulta', value: timelineEvents.find(e => e.type === 'CONSULT')?.date || 'Ninguna', color: '#1E88E5' },
-          { label: 'Episodios totales', value: timelineEvents.length.toString(), color: '#4CAF50' },
-          { label: 'Alergias conocidas', value: patientAllergiesList.length.toString(), color: '#F44336' },
-          { label: 'Seguro médico', value: patient.insurance_provider || 'Particular', color: '#FF9800' },
-        ].map(s => (
-          <div key={s.label} style={{ textAlign: 'center', borderLeft: '1px solid var(--border-secondary)', paddingLeft: 20 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{s.label}</div>
-          </div>
-        ))}
       </div>
 
       <div className="tab-bar" style={{ marginBottom: 20, width: 'fit-content' }}>
@@ -1455,6 +1848,198 @@ export function EHRPage() {
                 {savingBg ? 'Registrando...' : 'Registrar'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Media Viewer & Editor Modal */}
+      {viewingMedia && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,10,20,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 210, padding: 16 }}>
+          <div className="glass-card animate-fade-in" style={{ padding: 24, width: '100%', maxWidth: 500, border: '1px solid rgba(255,255,255,0.1)' }}>
+            
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {viewingMedia.type === 'photo' && 'Fotografía de Perfil del Paciente'}
+                  {viewingMedia.type === 'id_card' && 'Documento de Identidad / Carnet'}
+                  {viewingMedia.type === 'signature' && 'Firma de Consentimiento Informado'}
+                </h3>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {isEditingMedia ? 'Edición y actualización del registro digital' : 'Visualización del registro inmutable'}
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setViewingMedia(null);
+                  setIsEditingMedia(false);
+                  setEditFileBase64(null);
+                }} 
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                <Icon name="X" size={18}/>
+              </button>
+            </div>
+
+            {/* Content Area */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-secondary)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 250, position: 'relative', overflow: 'hidden', marginBottom: 20 }}>
+              
+              {!isEditingMedia ? (
+                // VIEW MODE
+                viewingMedia.url ? (
+                  viewingMedia.type === 'photo' ? (
+                    <div style={{ width: 180, height: 180, borderRadius: '50%', border: '4px solid var(--border-primary)', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
+                      <img src={viewingMedia.url} alt="Foto Perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                  ) : viewingMedia.type === 'id_card' ? (
+                    <img src={viewingMedia.url} alt="Carnet ID" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, objectFit: 'contain', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }} />
+                  ) : (
+                    <div style={{ background: '#fff', borderRadius: 8, padding: 16, width: '100%', display: 'flex', justifyContent: 'center' }}>
+                      <img src={viewingMedia.url} alt="Firma Consentimiento" style={{ maxHeight: 150, objectFit: 'contain' }} />
+                    </div>
+                  )
+                ) : (
+                  // Empty state in View Mode
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, color: 'var(--text-muted)' }}>
+                    <Icon name="FileWarning" size={40} style={{ color: 'var(--text-muted)' }} />
+                    <span style={{ fontSize: 13 }}>No se ha registrado ningún archivo para este campo.</span>
+                  </div>
+                )
+              ) : (
+                // EDIT MODE
+                viewingMedia.type === 'signature' ? (
+                  // Signature Canvas in Edit Mode
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ background: '#E3F2FD', borderRadius: 8, border: '2px dashed #90CAF9', overflow: 'hidden', position: 'relative' }}>
+                      <SignatureCanvas 
+                        ref={sigCanvasRef} 
+                        penColor="#0D47A1" 
+                        canvasProps={{ 
+                          width: 450, 
+                          height: 180, 
+                          className: 'sigCanvas', 
+                          style: { width: '100%', display: 'block' } 
+                        }} 
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button 
+                        className="btn-ghost" 
+                        style={{ fontSize: 11, padding: '4px 8px' }} 
+                        onClick={() => sigCanvasRef.current?.clear()}
+                      >
+                        <Icon name="Eraser" size={12} /> Limpiar Firma
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // File Uploader for Photo/ID Card in Edit Mode
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+                    {editFileBase64 ? (
+                      <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                        {viewingMedia.type === 'photo' ? (
+                          <div style={{ width: 150, height: 150, borderRadius: '50%', overflow: 'hidden', border: '3px solid #1E88E5' }}>
+                            <img src={editFileBase64} alt="Previsualización" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </div>
+                        ) : (
+                          <img src={editFileBase64} alt="Previsualización" style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 8, objectFit: 'contain' }} />
+                        )}
+                        <button 
+                          onClick={() => setEditFileBase64(null)} 
+                          style={{ position: 'absolute', top: -10, right: -10, background: '#FF5252', border: 'none', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
+                        >
+                          <Icon name="X" size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <label style={{ width: '100%', height: 180, border: '2px dashed var(--border-primary)', borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, cursor: 'pointer', transition: 'all 0.2s', background: 'rgba(255,255,255,0.01)' }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = '#1E88E5'}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-primary)'}
+                      >
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          style={{ display: 'none' }} 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setEditFileBase64(reader.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        <Icon name="UploadCloud" size={32} style={{ color: '#1E88E5' }} />
+                        <div style={{ textAlign: 'center' }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>Haga clic para subir</span>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>Formatos soportados: PNG, JPG, WEBP (Máx. 5MB)</span>
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              {!isEditingMedia ? (
+                // View Mode buttons
+                <>
+                  <button 
+                    className="btn-ghost" 
+                    onClick={() => {
+                      setViewingMedia(null);
+                    }}
+                  >
+                    Cerrar
+                  </button>
+                  <button 
+                    className="btn-primary" 
+                    onClick={() => {
+                      setIsEditingMedia(true);
+                      setEditFileBase64(null);
+                    }}
+                  >
+                    <Icon name="Edit3" size={14} /> Editar / Reemplazar
+                  </button>
+                </>
+              ) : (
+                // Edit Mode buttons
+                <>
+                  <button 
+                    className="btn-ghost" 
+                    disabled={savingMedia}
+                    onClick={() => {
+                      setIsEditingMedia(false);
+                      setEditFileBase64(null);
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    className="btn-primary" 
+                    disabled={savingMedia}
+                    onClick={handleSaveMedia}
+                    style={{ background: 'linear-gradient(135deg, #43A047, #1B5E20)', color: '#fff', borderColor: '#43A047' }}
+                  >
+                    {savingMedia ? (
+                      <>
+                        <Icon name="Loader2" size={14} className="animate-spin" />
+                        Guardando...
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="Save" size={14} />
+                        Guardar Cambios
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+
           </div>
         </div>
       )}

@@ -2,13 +2,53 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Activity, HeartPulse, Droplets } from "lucide-react";
+import { createClient } from "@/lib/supabase";
 
 export function MonitorVitalPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [baseValues, setBaseValues] = useState({
+    hr: 72, spo2: 98, sys: 120, dia: 80, resp: 16
+  });
+  
   const [hr, setHr] = useState(72);
   const [spo2, setSpo2] = useState(98);
   const [sys, setSys] = useState(120);
   const [dia, setDia] = useState(80);
+  const [resp, setResp] = useState(16);
+
+  const supabase = createClient();
+
+  useEffect(() => {
+    // Fetch initial data
+    const fetchVitals = async () => {
+      const { data } = await supabase.from('vital_monitors').select('*').limit(1).single();
+      if (data) {
+        setBaseValues({
+          hr: data.hr, spo2: data.spo2, sys: data.sys, dia: data.dia, resp: data.resp_rate || 16
+        });
+      }
+    };
+    fetchVitals();
+
+    // Subscribe to realtime updates
+    const channel = supabase.channel('vital_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vital_monitors' }, (payload: any) => {
+        if (payload.new) {
+          setBaseValues({
+            hr: payload.new.hr,
+            spo2: payload.new.spo2,
+            sys: payload.new.sys,
+            dia: payload.new.dia,
+            resp: payload.new.resp_rate || 16
+          });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -87,15 +127,16 @@ export function MonitorVitalPage() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setHr(prev => prev + Math.floor(Math.random() * 3) - 1);
-      if (Math.random() > 0.7) setSpo2(prev => Math.min(100, Math.max(90, prev + Math.floor(Math.random() * 3) - 1)));
+      setHr(baseValues.hr + Math.floor(Math.random() * 3) - 1);
+      if (Math.random() > 0.7) setSpo2(Math.min(100, Math.max(90, baseValues.spo2 + Math.floor(Math.random() * 3) - 1)));
       if (Math.random() > 0.8) {
-        setSys(prev => prev + Math.floor(Math.random() * 5) - 2);
-        setDia(prev => prev + Math.floor(Math.random() * 3) - 1);
+        setSys(baseValues.sys + Math.floor(Math.random() * 5) - 2);
+        setDia(baseValues.dia + Math.floor(Math.random() * 3) - 1);
       }
+      if (Math.random() > 0.9) setResp(baseValues.resp + Math.floor(Math.random() * 3) - 1);
     }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [baseValues]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] bg-black text-white p-4 font-mono overflow-hidden">
@@ -177,7 +218,7 @@ export function MonitorVitalPage() {
               <span className="font-bold">RESP</span>
             </div>
             <div className="flex items-baseline justify-end">
-              <span className="text-5xl font-bold text-[#FF9800]">16</span>
+              <span className="text-5xl font-bold text-[#FF9800]">{resp}</span>
               <span className="text-xl text-[#FF9800]/70 ml-2">rpm</span>
             </div>
           </div>

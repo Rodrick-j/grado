@@ -1,0 +1,8 @@
+1:"$Sreact.fragment"
+2:I[49830,["/_next/static/chunks/01xlw8hd842-c.js","/_next/static/chunks/0_0mgrns96g__.js","/_next/static/chunks/0j1_mtkt6v1-b.js","/_next/static/chunks/0y5rsy3kdrsd4.js","/_next/static/chunks/11~43fa~dhso2.js"],"AppShell"]
+3:I[81132,["/_next/static/chunks/01xlw8hd842-c.js","/_next/static/chunks/0_0mgrns96g__.js","/_next/static/chunks/0j1_mtkt6v1-b.js","/_next/static/chunks/0y5rsy3kdrsd4.js","/_next/static/chunks/11~43fa~dhso2.js"],"RoleGuard"]
+4:I[94970,["/_next/static/chunks/01xlw8hd842-c.js","/_next/static/chunks/0_0mgrns96g__.js","/_next/static/chunks/0j1_mtkt6v1-b.js","/_next/static/chunks/0y5rsy3kdrsd4.js","/_next/static/chunks/11~43fa~dhso2.js"],"default"]
+5:I[97367,["/_next/static/chunks/01xlw8hd842-c.js","/_next/static/chunks/0_0mgrns96g__.js"],"OutletBoundary"]
+6:"$Sreact.suspense"
+0:{"rsc":["$","$1","c",{"children":[["$","$L2",null,{"children":["$","$L3",null,{"allowedRoles":["SUPER_ADMIN","MEDICAL_DIRECTOR","DOCTOR","RESIDENT","NURSE","AUDITOR"],"children":["$","$L4",null,{}]}]}],[["$","script","script-0",{"src":"/_next/static/chunks/0j1_mtkt6v1-b.js","async":true}],["$","script","script-1",{"src":"/_next/static/chunks/0y5rsy3kdrsd4.js","async":true}],["$","script","script-2",{"src":"/_next/static/chunks/11~43fa~dhso2.js","async":true}]],["$","$L5",null,{"children":["$","$6",null,{"name":"Next.MetadataOutlet","children":"$@7"}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"XFpfdpobEUW6zkQf5NwbH"}
+7:null

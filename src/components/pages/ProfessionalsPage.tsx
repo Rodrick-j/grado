@@ -142,10 +142,10 @@ export function ProfessionalsPage() {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
-          { label: 'Médicos Registrados', value: 68 + realProfessionals.length, icon: 'UserCog', color: '#1E88E5' },
-          { label: 'Activos Hoy', value: 42 + realProfessionals.filter(p => p.status === 'active').length, icon: 'CheckCircle2', color: '#4CAF50' },
-          { label: 'En Licencia', value: 5, icon: 'Clock', color: '#FF9800' },
-          { label: 'Licencias por Vencer', value: 3, icon: 'AlertTriangle', color: '#F44336' },
+          { label: 'Médicos Registrados', value: realProfessionals.length, icon: 'UserCog', color: '#1E88E5' },
+          { label: 'Activos Hoy', value: realProfessionals.filter(p => p.status === 'active').length, icon: 'CheckCircle2', color: '#4CAF50' },
+          { label: 'En Licencia', value: realProfessionals.filter(p => p.status === 'on-leave').length, icon: 'Clock', color: '#FF9800' },
+          { label: 'Licencias por Vencer', value: 0, icon: 'AlertTriangle', color: '#F44336' },
         ].map(c => (
           <div key={c.label} className="metric-card" style={{ padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

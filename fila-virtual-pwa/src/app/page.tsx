@@ -28,8 +28,15 @@ import {
   Award,
   Activity,
   Check,
-  Search
+  Search,
+  Stethoscope,
+  CalendarCheck,
+  Video,
+  User,
+  X
 } from 'lucide-react';
+import PatientTelemedicine from '@/components/PatientTelemedicine';
+import BottomNav from '@/components/BottomNav';
 
 const DEPARTMENTS = [
   { 
@@ -68,7 +75,8 @@ const TIME_SLOTS = [
 ];
 
 export default function PwaPage() {
-  const [step, setStep] = useState<'welcome' | 'select_dept' | 'form' | 'ticket' | 'monitor' | 'book_appt_specialties' | 'book_appt_datetime' | 'book_appt_form' | 'book_appt_confirm'>('welcome');
+  const [step, setStep] = useState<'splash' | 'welcome' | 'select_dept' | 'form' | 'ticket' | 'monitor' | 'book_appt_specialties' | 'book_appt_datetime' | 'book_appt_form' | 'book_appt_confirm' | 'telemedicina'>('splash');
+  const [currentTab, setCurrentTab] = useState<'home' | 'servicios' | 'monitor' | 'perfil'>('home');
   const [selectedDept, setSelectedDept] = useState<typeof DEPARTMENTS[0] | null>(null);
   
   // Theme state
@@ -82,6 +90,13 @@ export default function PwaPage() {
   const [ciPassport, setCiPassport] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  
+  // Professional Medical Record Fields
+  const [addressLine1, setAddressLine1] = useState('');
+  const [city, setCity] = useState('');
+  const [emergencyName, setEmergencyName] = useState('');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [bloodType, setBloodType] = useState('UNKNOWN');
   
   // Appointment specific fields
   const [apptSpecialties, setApptSpecialties] = useState<any[]>([]);
@@ -109,10 +124,32 @@ export default function PwaPage() {
   // Monitor state
   const [monitorTickets, setMonitorTickets] = useState<any[]>([]);
 
+  // Ambulance request states
+  const [showAmbulanceModal, setShowAmbulanceModal] = useState(false);
+  const [ambulanceTriageLevel, setAmbulanceTriageLevel] = useState<'RED' | 'ORANGE' | 'YELLOW' | null>(null);
+  const [ambulanceComplaint, setAmbulanceComplaint] = useState('');
+  const [gpsLocation, setGpsLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [sendingAmbulanceReq, setSendingAmbulanceReq] = useState(false);
+  const [ambulanceSuccess, setAmbulanceSuccess] = useState(false);
+  const [isLeveCase, setIsLeveCase] = useState(false);
+
   const supabase = createClient();
 
   // Load theme and ticket on mount
   useEffect(() => {
+    // Prefill patient data if previously saved
+    const savedFN = localStorage.getItem('faro_patient_firstName') || '';
+    const savedLN = localStorage.getItem('faro_patient_lastName') || '';
+    const savedCI = localStorage.getItem('faro_patient_ci') || '';
+    const savedPhone = localStorage.getItem('faro_patient_phone') || '';
+    const savedBD = localStorage.getItem('faro_patient_birthDate') || '';
+    if (savedFN) setFirstName(savedFN);
+    if (savedLN) setLastName(savedLN);
+    if (savedCI) setCiPassport(savedCI);
+    if (savedPhone) setPhone(savedPhone);
+    if (savedBD) setBirthDate(savedBD);
+
     // Theme
     const savedTheme = localStorage.getItem('faro_theme') || 'dark';
     setTheme(savedTheme as 'dark' | 'light');
@@ -373,6 +410,96 @@ export default function PwaPage() {
     }
   };
 
+  const handleAmbulanceClick = () => {
+    setGpsError(null);
+    setGpsLocation(null);
+    setAmbulanceSuccess(false);
+    setAmbulanceTriageLevel(null);
+    setAmbulanceComplaint('');
+    setIsLeveCase(false);
+    
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setGpsError('La geolocalización no está soportada por su navegador.');
+      setShowAmbulanceModal(true);
+      return;
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        });
+        setShowAmbulanceModal(true);
+      },
+      (error) => {
+        let msg = 'Error al obtener ubicación.';
+        if (error.code === error.PERMISSION_DENIED) {
+          msg = 'Permiso de ubicación denegado. Active el GPS para despachar la ambulancia a su posición exacta.';
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          msg = 'Señal de GPS no disponible en este momento.';
+        } else if (error.code === error.TIMEOUT) {
+          msg = 'Tiempo de espera agotado al obtener ubicación GPS.';
+        }
+        setGpsError(msg);
+        setShowAmbulanceModal(true);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  const handleSendAmbulanceRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gpsLocation) {
+      alert('Se requiere ubicación GPS válida para despachar la ambulancia.');
+      return;
+    }
+    if (!ambulanceTriageLevel) {
+      alert('Por favor seleccione la gravedad de su emergencia.');
+      return;
+    }
+    if (!firstName || !lastName || !ciPassport || !phone || !birthDate) {
+      alert('Por favor complete todos sus datos de identificación para el registro de emergencia.');
+      return;
+    }
+
+    setSendingAmbulanceReq(true);
+    try {
+      const { data, error } = await supabase.rpc('register_and_request_ambulance', {
+        p_first_name: firstName.trim(),
+        p_last_name: lastName.trim(),
+        p_birth_date: birthDate,
+        p_gender: gender,
+        p_ci_passport: ciPassport.trim(),
+        p_phone: phone.trim(),
+        p_email: email.trim() || null,
+        p_latitude: gpsLocation.latitude,
+        p_longitude: gpsLocation.longitude,
+        p_triage_level: ambulanceTriageLevel,
+        p_chief_complaint: ambulanceComplaint.trim() || `Código Emergencia: ${ambulanceTriageLevel}`
+      });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setAmbulanceSuccess(true);
+        // Prefill forms for future calls
+        localStorage.setItem('faro_patient_firstName', firstName);
+        localStorage.setItem('faro_patient_lastName', lastName);
+        localStorage.setItem('faro_patient_ci', ciPassport);
+        localStorage.setItem('faro_patient_phone', phone);
+        localStorage.setItem('faro_patient_birthDate', birthDate);
+      } else {
+        throw new Error('Error al procesar solicitud de ambulancia.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('Error al enviar la solicitud: ' + (err.message || err));
+    } finally {
+      setSendingAmbulanceReq(false);
+    }
+  };
+
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedApptSpecialty || !selectedDate || !selectedTime) return;
@@ -383,6 +510,20 @@ export default function PwaPage() {
     // Build starts_at timestamptz string (ISO format in local time)
     const startTimestamp = `${selectedDate}T${selectedTime}:00`;
 
+    // Age Validation: Must be >= 18
+    const birthDateObj = new Date(birthDate);
+    const today = new Date();
+    let age = today.getFullYear() - birthDateObj.getFullYear();
+    const m = today.getMonth() - birthDateObj.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
+      age--;
+    }
+    if (age < 18) {
+      setErrorMsg('Error: Solo las personas mayores de 18 años pueden agendar citas por este medio. Contacte a recepción para pacientes pediátricos.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const { data, error } = await supabase.rpc('register_and_book_appointment', {
         p_first_name: firstName.trim(),
@@ -392,6 +533,11 @@ export default function PwaPage() {
         p_ci_passport: ciPassport.trim(),
         p_phone: phone.trim(),
         p_email: email.trim() || null,
+        p_address_line1: addressLine1.trim() || null,
+        p_city: city.trim() || null,
+        p_emergency_name: emergencyName.trim() || null,
+        p_emergency_phone: emergencyPhone.trim() || null,
+        p_blood_type: bloodType,
         p_specialty_id: selectedApptSpecialty.id,
         p_starts_at: startTimestamp
       });
@@ -435,156 +581,273 @@ export default function PwaPage() {
   };
 
   return (
-    <main className="flex-1 flex flex-col justify-between max-w-md mx-auto w-full px-4 py-6 transition-colors duration-300">
+    <main className="flex flex-col h-[100dvh] max-w-md mx-auto w-full bg-transparent overflow-hidden relative transition-colors duration-300">
+      <div className="flex-1 flex flex-col overflow-y-auto hide-scrollbar px-4 pt-4 pb-[90px]">
+      
+      {/* STEP 0: Splash / Landing Screen */}
+      {step === 'splash' && (
+        <div className="absolute inset-0 z-[100] flex flex-col justify-between bg-black overflow-hidden sm:rounded-none">
+          <img 
+            src="/landing-bg.png" 
+            alt="Fondo" 
+            className="absolute inset-0 w-full h-full object-cover opacity-50"
+          />
+          
+          {/* Top content: Hospital Name */}
+          <div className="relative z-10 w-full p-8 pt-12 text-center drop-shadow-md">
+            <h2 className="text-white/80 text-sm font-extrabold uppercase tracking-[0.2em] mb-2">Hospital</h2>
+            <h1 className="text-white text-4xl font-black leading-none tracking-tight drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]">San Juan<br/>De Dios</h1>
+            <div className="w-12 h-1 bg-[#00BCD4] mx-auto mt-6 rounded-full shadow-[0_0_10px_rgba(0,188,212,0.8)]" />
+          </div>
+
+          {/* Middle content: Features with Icons */}
+          <div className="relative z-10 flex-1 flex flex-col justify-center px-6 space-y-4">
+            <div className="flex items-center gap-4 bg-black/30 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-xl">
+              <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 border border-blue-500/30">
+                <Stethoscope className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-black text-lg leading-tight">+20 Especialidades</h3>
+                <p className="text-white/70 text-xs font-semibold mt-1">Cardiología, Pediatría, Neurología...</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 bg-black/30 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-xl">
+              <div className="w-12 h-12 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 border border-teal-500/30">
+                <CalendarCheck className="w-6 h-6 text-teal-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-black text-lg leading-tight">Fichas en Línea</h3>
+                <p className="text-white/70 text-xs font-semibold mt-1">Reserva y gestiona tus citas al instante.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 bg-black/30 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-xl">
+              <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 border border-purple-500/30">
+                <Activity className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-white font-black text-lg leading-tight">Atención Rápida</h3>
+                <p className="text-white/70 text-xs font-semibold mt-1">Seguimiento en tiempo real sin filas.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom content: Button */}
+          <div className="relative z-10 w-full px-6 pb-12 pt-8 bg-gradient-to-t from-black via-black/80 to-transparent">
+            <button 
+              onClick={() => setStep('welcome')}
+              className="w-full py-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-white font-extrabold text-lg tracking-wide shadow-[0_8px_32px_rgba(0,188,212,0.3)] hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              Entrar al Portal <ChevronRight className="w-5 h-5" />
+            </button>
+            <p className="text-center text-white/40 text-[9px] mt-4 font-bold uppercase tracking-widest">Tu Salud, Nuestra Prioridad</p>
+          </div>
+        </div>
+      )}
+
       {/* Dynamic Header */}
-      <header className="flex items-center justify-between border-b border-[var(--header-border)] pb-4 mb-6 transition-all duration-300">
+      {step !== 'splash' && (
+      <header className="flex-none flex items-center justify-between pb-3 mb-4 transition-all duration-300">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1E88E5] to-[#00BCD4] flex items-center justify-center shadow-lg transform hover:rotate-6 transition-transform">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#1E88E5] to-[#00BCD4] flex items-center justify-center shadow-[0_4px_15px_rgba(30,136,229,0.3)] transform hover:scale-105 transition-transform">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
-          <div>
-            <h1 className="font-extrabold text-base tracking-tight text-[var(--foreground)]">FARO FILA VIRTUAL</h1>
-            <p className="text-[9px] text-[#556B8D] dark:text-[#8AA3C8] font-bold tracking-wider uppercase">San Juan de Dios</p>
+          <div className="flex flex-col">
+            <h1 className="font-extrabold text-sm tracking-tight text-[var(--foreground)] leading-tight">FARO VIRTUAL</h1>
+            <p className="text-[9px] text-[var(--text-muted)] font-bold tracking-wider uppercase">San Juan de Dios</p>
           </div>
         </div>
         
         {/* Actions Menu */}
         <div className="flex items-center gap-2">
-          {/* Day/Night Toggler */}
-          <button 
-            onClick={toggleTheme}
-            className="w-9 h-9 rounded-full bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] flex items-center justify-center text-[var(--foreground)] transition-all shadow-md active:scale-95 cursor-pointer"
-            title="Cambiar Modo Día/Noche"
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-800" />}
-          </button>
-
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--badge-bg)] border border-[var(--card-border)]">
-            <div className="w-2 h-2 rounded-full bg-[#4CAF50] animate-pulse" />
-            <span className="text-[10px] font-bold text-[var(--badge-text)] uppercase tracking-wider">PWA</span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--badge-bg)] border border-[var(--card-border)] backdrop-blur-sm">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#4CAF50] animate-pulse" />
+            <span className="text-[9px] font-black text-[var(--badge-text)] uppercase tracking-wider">ON</span>
           </div>
         </div>
       </header>
+      )}
 
       {/* STEP 1: Welcome Portal / Dashboard */}
       {step === 'welcome' && (
-        <div className="flex-1 flex flex-col justify-center animate-fade-in space-y-4">
+        <div className="flex-1 flex flex-col justify-start animate-fade-in space-y-4">
           
-          {/* Hospital Presentation Card */}
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-[#1E88E5] to-[#00BCD4] text-white shadow-xl relative overflow-hidden">
-            <div className="absolute right-[-20px] bottom-[-20px] opacity-15">
-              <ShieldCheck className="w-24 h-24" />
-            </div>
-            <div className="relative z-10">
-              <span className="text-[9px] font-bold tracking-widest bg-white/20 px-2 py-0.5 rounded-full uppercase">PORTAL DEL PACIENTE</span>
-              <h2 className="text-[17px] font-black mt-1.5 leading-tight">Hospital San Juan de Dios</h2>
-              <p className="text-[11px] text-white/80 mt-0.5">Admisión digital para turnos rápidos en tiempo real.</p>
-              
-              <div className="mt-3 flex items-center gap-1.5 bg-black/10 border border-white/10 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold">
-                <Clock className="w-3.5 h-3.5 text-amber-300" />
-                <span>Atención Fluida Hoy · Espera prom. 10m</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Active Ticket Banner Shortcut */}
-          {activeTicket && (
-            <button 
-              onClick={() => setStep('ticket')}
-              className="w-full p-3.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-between transition-all shadow-md cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <BellRing className="w-4 h-4 text-amber-500 animate-swing" />
-                <div className="text-left">
-                  <div className="text-[11px] font-black">
-                    {activeTicket.status === 'ATTENDED' ? 'VALORAR ATENCIÓN COMPLETADA' : 'TIENES UN TICKET ACTIVO'}
-                  </div>
-                  <div className="text-[9px] opacity-80">
-                    {activeTicket.status === 'ATTENDED' 
-                      ? 'Ayúdanos con tu opinión del servicio' 
-                      : `Turno ${activeTicket.token_number} · Pulsa para ver estado`}
+          {currentTab === 'home' && (
+            <div className="space-y-3 animate-slide-up">
+              {/* Hospital Presentation Card */}
+              <div className="p-4 rounded-[1.25rem] bg-gradient-to-tr from-[#1E88E5] to-[#00BCD4] text-white shadow-[0_8px_20px_rgba(30,136,229,0.3)] relative overflow-hidden transition-all">
+                <div className="absolute right-[-20px] bottom-[-20px] opacity-10 transform -rotate-12">
+                  <ShieldCheck className="w-28 h-28" />
+                </div>
+                <div className="relative z-10">
+                  <span className="text-[8px] font-black tracking-widest bg-white/20 backdrop-blur-md border border-white/10 px-2 py-0.5 rounded-full uppercase shadow-sm">PORTAL DEL PACIENTE</span>
+                  <h2 className="text-[16px] font-black mt-2 leading-tight">Hospital San Juan de Dios</h2>
+                  <p className="text-[11px] text-white/80 mt-0.5">Admisión digital para turnos rápidos en tiempo real.</p>
+                  
+                  <div className="mt-3 flex items-center gap-1.5 bg-black/10 border border-white/10 px-2.5 py-1.5 rounded-xl text-[10px] font-semibold">
+                    <Clock className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Atención Fluida Hoy · Espera prom. 10m</span>
                   </div>
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4" />
-            </button>
+
+              {/* Active Ticket Banner Shortcut */}
+              {activeTicket && (
+                <button 
+                  onClick={() => setStep('ticket')}
+                  className="w-full p-3.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-between transition-all shadow-md cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <BellRing className="w-4 h-4 text-amber-500 animate-swing" />
+                    <div className="text-left">
+                      <div className="text-[11px] font-black">
+                        {activeTicket.status === 'ATTENDED' ? 'VALORAR ATENCIÓN COMPLETADA' : 'TIENES UN TICKET ACTIVO'}
+                      </div>
+                      <div className="text-[9px] opacity-80">
+                        {activeTicket.status === 'ATTENDED' 
+                          ? 'Ayúdanos con tu opinión del servicio' 
+                          : `Turno ${activeTicket.token_number} · Pulsa para ver estado`}
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Hospital Information Blocks */}
+              <div className="glass-panel p-3.5 space-y-2.5">
+                <h4 className="text-[10px] font-black text-[var(--foreground)] flex items-center gap-1.5 uppercase tracking-wider">
+                  <Info className="w-3 h-3 text-[#1E88E5]" />
+                  Info Rápida
+                </h4>
+                <div className="grid grid-cols-2 gap-2 text-left">
+                  <div className="p-2.5 rounded-xl bg-[var(--input-bg)] border border-[var(--input-border)] transition-colors hover:bg-[var(--card-hover)]">
+                    <div className="flex items-center gap-1.5 text-[#1E88E5] text-[9px] font-extrabold uppercase tracking-wide">
+                      <Calendar className="w-3 h-3" />
+                      Horarios
+                    </div>
+                    <p className="text-[9px] text-[var(--text-muted)] font-semibold mt-1 leading-tight">Lun - Dom<br />7:00 - 20:00</p>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[var(--input-bg)] border border-[var(--input-border)] transition-colors hover:bg-[var(--card-hover)]">
+                    <div className="flex items-center gap-1.5 text-[#66BB6A] text-[9px] font-extrabold uppercase tracking-wide">
+                      <MapPin className="w-3 h-3" />
+                      Ubicación
+                    </div>
+                    <p className="text-[9px] text-[var(--text-muted)] font-semibold mt-1 leading-tight">Av. Centenario<br />Primer Anillo</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
-          {/* Main Actions Options */}
-          <div className="grid grid-cols-2 gap-3">
-            
-            {/* Solicitar Turno Button */}
-            <button
-              onClick={() => setStep('select_dept')}
-              className="p-4 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] shadow-md transition-all flex flex-col items-start text-left group active:scale-[0.99] cursor-pointer"
-            >
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#EF5350]/15 to-[#F44336]/15 flex items-center justify-center text-[#EF5350] mb-2.5">
-                <Activity className="w-5 h-5 text-[#EF5350]" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-sm text-[var(--foreground)] leading-tight">Unirse a Fila</h3>
-                <p className="text-[10px] text-[var(--text-muted)] mt-1 leading-snug">Saca tu ticket digital y espera en vivo</p>
-              </div>
-            </button>
+          {currentTab === 'servicios' && (
+            <div className="space-y-4 animate-slide-up">
+              <h3 className="text-[13px] font-extrabold text-[var(--foreground)] px-1 uppercase tracking-wider text-center mb-2">Servicios Disponibles</h3>
+              
+              <div className="grid grid-cols-2 gap-3">
+                {/* Emergency / Ambulance Request Card */}
+                <button
+                  onClick={handleAmbulanceClick}
+                  className="col-span-2 p-4 rounded-xl bg-gradient-to-r from-red-950/30 to-rose-900/30 hover:from-red-800/40 hover:to-rose-800/40 border border-red-500/30 shadow-[0_0_15px_rgba(244,67,54,0.15)] transition-all flex items-center justify-between text-left group active:scale-[0.99] cursor-pointer relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-red-400/10 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]" />
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-11 h-11 rounded-lg bg-red-500/20 flex items-center justify-center text-red-400 border border-red-500/30 relative">
+                      <Siren className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-red-500 dark:text-red-400 leading-tight">SOLICITAR AMBULANCIA</h3>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">Urgencia médica con ubicación GPS exacta</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-red-500 group-hover:text-red-300 transition-colors relative z-10" />
+                </button>
+                {/* Solicitar Turno Button */}
+                <button
+                  onClick={() => setStep('select_dept')}
+                  className="p-4 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] shadow-md transition-all flex flex-col items-start text-left group active:scale-[0.99] cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#EF5350]/15 to-[#F44336]/15 flex items-center justify-center text-[#EF5350] mb-3">
+                    <Activity className="w-5 h-5 text-[#EF5350]" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[var(--foreground)] leading-tight">Fila Virtual</h3>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1.5 leading-snug">Saca tu ticket digital ahora mismo</p>
+                  </div>
+                </button>
 
-            {/* Agendar Cita Médica (Doctoralia Style) */}
-            <button
-              onClick={() => {
-                fetchBookingSpecialties();
-                setStep('book_appt_specialties');
-              }}
-              className="p-4 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] shadow-md transition-all flex flex-col items-start text-left group active:scale-[0.99] cursor-pointer"
-            >
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#1E88E5]/15 to-[#00BCD4]/15 flex items-center justify-center text-[#1E88E5] mb-2.5">
-                <Calendar className="w-5 h-5 text-[#1E88E5] dark:text-[#00BCD4]" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-sm text-[var(--foreground)] leading-tight">Reservar Cita</h3>
-                <p className="text-[10px] text-[var(--text-muted)] mt-1 leading-snug">Agenda consulta médica de especialista</p>
-              </div>
-            </button>
+                {/* Agendar Cita Médica */}
+                <button
+                  onClick={() => {
+                    fetchBookingSpecialties();
+                    setStep('book_appt_specialties');
+                  }}
+                  className="p-4 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] shadow-md transition-all flex flex-col items-start text-left group active:scale-[0.99] cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#1E88E5]/15 to-[#00BCD4]/15 flex items-center justify-center text-[#1E88E5] mb-3">
+                    <Calendar className="w-5 h-5 text-[#1E88E5] dark:text-[#00BCD4]" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[var(--foreground)] leading-tight">Reservar Cita</h3>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1.5 leading-snug">Agenda consulta especialista</p>
+                  </div>
+                </button>
 
-            {/* Ver Monitor de Sala Button */}
-            <button
-              onClick={() => setStep('monitor')}
-              className="col-span-2 p-3.5 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] shadow-md transition-all flex items-center justify-between text-left group active:scale-[0.99] cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#66BB6A]/15 to-[#4CAF50]/15 flex items-center justify-center text-[#66BB6A]">
-                  <Tv className="w-4 h-4 text-[#66BB6A]" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-[var(--foreground)] leading-tight">Ver Monitor de Sala</h3>
-                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Sigue los turnos llamados en pantalla gigante</p>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[#66BB6A] transition-colors" />
-            </button>
-          </div>
-
-          {/* Hospital Information Blocks */}
-          <div className="p-4 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-md space-y-3">
-            <h4 className="text-[11px] font-bold text-[var(--foreground)] flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5 text-[#1E88E5]" />
-              Información del Hospital
-            </h4>
-            <div className="grid grid-cols-2 gap-3 text-left">
-              <div className="p-2.5 rounded-lg bg-[var(--input-bg)] border border-[var(--card-border)]">
-                <div className="flex items-center gap-1.5 text-[#1E88E5] text-[9px] font-extrabold uppercase">
-                  <Calendar className="w-3 h-3" />
-                  Horarios
-                </div>
-                <p className="text-[10px] text-[var(--text-muted)] font-semibold mt-0.5">Lunes a Domingo<br />Consulta: 7:00 - 20:00</p>
-              </div>
-              <div className="p-2.5 rounded-lg bg-[var(--input-bg)] border border-[var(--card-border)]">
-                <div className="flex items-center gap-1.5 text-[#66BB6A] text-[9px] font-extrabold uppercase">
-                  <MapPin className="w-3 h-3" />
-                  Ubicación
-                </div>
-                <p className="text-[10px] text-[var(--text-muted)] font-semibold mt-0.5">Av. Centenario<br />Primer Anillo</p>
+                {/* Telemedicina Button */}
+                <button
+                  onClick={() => setStep('telemedicina')}
+                  className="col-span-2 p-4 rounded-xl bg-gradient-to-r from-blue-900/30 to-cyan-900/30 hover:from-blue-800/40 hover:to-cyan-800/40 border border-cyan-500/30 shadow-[0_0_15px_rgba(0,188,212,0.15)] transition-all flex items-center justify-between text-left group active:scale-[0.99] cursor-pointer relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/10 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]" />
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-11 h-11 rounded-lg bg-cyan-500/20 flex items-center justify-center text-cyan-400 border border-cyan-500/30 relative">
+                      <Video className="w-5 h-5" />
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse border border-[#0F172A]" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-cyan-500 dark:text-cyan-400 leading-tight">Consultorio Virtual</h3>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">Ingresar a Telemedicina en vivo</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-cyan-500 group-hover:text-cyan-300 transition-colors relative z-10" />
+                </button>
               </div>
             </div>
-          </div>
+          )}
+
+          {currentTab === 'perfil' && (
+            <div className="space-y-4 animate-slide-up">
+              <h3 className="text-[13px] font-extrabold text-[var(--foreground)] px-1 uppercase tracking-wider text-center mb-2">Mi Perfil</h3>
+              
+              <div className="p-4 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-md flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-slate-500/10 flex items-center justify-center text-[var(--foreground)] border border-slate-500/20">
+                  <User className="w-6 h-6 text-[var(--text-muted)]" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-[15px] text-[var(--foreground)]">Paciente Anónimo</h3>
+                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">Usando acceso rápido</p>
+                </div>
+              </div>
+
+              <div className="p-2 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-md divide-y divide-[var(--card-border)]">
+                <div className="p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-[var(--foreground)]">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--card-hover)] flex items-center justify-center">
+                      {theme === 'dark' ? <Moon className="w-4 h-4 text-indigo-400" /> : <Sun className="w-4 h-4 text-amber-500" />}
+                    </div>
+                    <span className="text-[12px] font-bold">Modo Oscuro</span>
+                  </div>
+                  <button 
+                    onClick={toggleTheme}
+                    className={`w-11 h-6 rounded-full transition-colors flex items-center px-1 cursor-pointer ${theme === 'dark' ? 'bg-[#00BCD4]' : 'bg-slate-300 dark:bg-slate-700'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -963,7 +1226,7 @@ export default function PwaPage() {
 
       {/* STEP 5: Live Waiting Room Monitor */}
       {step === 'monitor' && (
-        <div className="flex-1 flex flex-col justify-start animate-fade-in space-y-6">
+        <div className="flex-1 flex flex-col justify-start animate-fade-in space-y-6 pb-[80px]">
           <div className="flex items-center justify-between">
             <button 
               onClick={() => setStep('welcome')}
@@ -1084,9 +1347,9 @@ export default function PwaPage() {
             </button>
           </div>
 
-          <div className="text-left">
-            <h2 className="text-lg font-black text-[var(--foreground)]">Selecciona la Especialidad</h2>
-            <p className="text-[11px] text-[var(--text-muted)] mt-0.5 font-semibold">Elige la rama de la medicina para tu consulta médica programada.</p>
+          <div className="text-left mb-2">
+            <h2 className="text-xl font-black text-[var(--foreground)]">Directorio Médico</h2>
+            <p className="text-[11px] text-[var(--text-muted)] mt-1 font-semibold">Encuentra a los mejores especialistas para tu atención médica.</p>
           </div>
 
           {/* Search Specialty Filter Input */}
@@ -1106,7 +1369,7 @@ export default function PwaPage() {
               <Loader2 className="w-8 h-8 animate-spin text-[#00BCD4]" />
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 gap-3 pb-8">
               {(() => {
                 const filtered = apptSpecialties.filter(spec => 
                   spec.name.toLowerCase().includes(specialtySearch.toLowerCase()) ||
@@ -1115,8 +1378,10 @@ export default function PwaPage() {
                 
                 if (filtered.length === 0) {
                   return (
-                    <div className="col-span-2 text-center py-10 text-xs text-[var(--text-muted)] font-semibold">
-                      No se encontraron especialidades que coincidan con la búsqueda.
+                    <div className="col-span-2 text-center py-12 px-4 rounded-2xl bg-[var(--card-bg)] border border-[var(--card-border)] backdrop-blur-md">
+                      <Search className="w-8 h-8 text-[var(--text-muted)] opacity-50 mx-auto mb-3" />
+                      <h3 className="text-sm font-bold text-[var(--foreground)]">Sin resultados</h3>
+                      <p className="text-xs text-[var(--text-muted)] mt-1">No se encontraron especialidades médicas con esa búsqueda.</p>
                     </div>
                   );
                 }
@@ -1128,19 +1393,31 @@ export default function PwaPage() {
                       setSelectedApptSpecialty(spec);
                       setStep('book_appt_datetime');
                     }}
-                    className="w-full text-left p-3 rounded-xl bg-[var(--card-bg)] hover:bg-[var(--card-hover)] border border-[var(--card-border)] shadow-sm transition-all flex items-center gap-2.5 group cursor-pointer active:scale-[0.99]"
+                    className="glass-panel p-3.5 flex flex-col items-center justify-center text-center gap-2 group cursor-pointer active:scale-95"
                   >
-                    <div 
-                      className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-[8px] text-white shadow-sm flex-shrink-0"
-                      style={{ backgroundColor: spec.color || '#1E88E5' }}
-                    >
-                      {spec.code || spec.name.substring(0,3).toUpperCase()}
+                    <div className="relative mb-1">
+                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#1E88E5]/10 to-[#00BCD4]/10 flex items-center justify-center border border-[var(--card-border)] group-hover:scale-110 transition-transform duration-300">
+                        <User className="w-5 h-5 text-[#00BCD4]" />
+                      </div>
+                      <div 
+                        className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-[var(--card-bg)] shadow-sm"
+                        style={{ backgroundColor: spec.color || '#1E88E5' }}
+                      />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-extrabold text-[12px] text-[var(--foreground)] truncate leading-tight group-hover:text-[#00BCD4] transition-colors">
+                    <div className="w-full">
+                      <h3 className="font-extrabold text-[12px] text-[var(--foreground)] group-hover:text-[#00BCD4] transition-colors leading-tight line-clamp-2">
                         {spec.name}
                       </h3>
-                      <p className="text-[9px] text-[var(--text-muted)] font-semibold truncate mt-0.5">Consultorio Disp.</p>
+                      <div className="flex justify-center mt-1 text-amber-400">
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                      </div>
+                      <p className="text-[9px] text-[#00BCD4] bg-[#00BCD4]/10 px-1.5 py-0.5 rounded uppercase tracking-wider mt-2 font-black flex items-center justify-center gap-1 mx-auto w-fit">
+                        <CalendarCheck className="w-3 h-3" /> Turnos
+                      </p>
                     </div>
                   </button>
                 ));
@@ -1154,55 +1431,83 @@ export default function PwaPage() {
       {step === 'book_appt_datetime' && selectedApptSpecialty && (
         <div className="flex-1 flex flex-col justify-between animate-fade-in">
           <div>
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-3 mb-4">
               <button 
                 onClick={() => setStep('book_appt_specialties')}
                 className="text-xs font-bold text-[#00BCD4] hover:underline cursor-pointer"
               >
                 &larr; Volver
               </button>
-              <div className="h-4 w-px bg-[rgba(255,255,255,0.15)]" />
-              <span className="text-xs text-[var(--text-muted)] font-bold">
-                Especialidad: <span style={{ color: selectedApptSpecialty.color }}>{selectedApptSpecialty.name}</span>
-              </span>
             </div>
 
-            <div className="text-left mb-6">
-              <h2 className="text-xl font-black text-[var(--foreground)]">Fecha y Hora de la Cita</h2>
-              <p className="text-xs text-[var(--text-muted)] mt-1 font-semibold">Escoge el día y la franja horaria que mejor se adapten a ti.</p>
+            <div className="mb-6">
+              <h2 className="text-xl font-black text-[var(--foreground)] leading-tight">Fecha y Hora</h2>
+              <p className="text-[11px] text-[var(--text-muted)] mt-1 font-semibold">Selecciona cuándo deseas ser atendido por el especialista.</p>
             </div>
 
-            <div className="space-y-5">
-              {/* Date Input */}
-              <div className="p-4 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-sm space-y-2">
-                <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider">1. Elige una fecha (desde mañana)</label>
-                <input 
-                  type="date"
-                  required
-                  min={getTomorrowString()}
-                  className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all font-semibold"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+            {/* Selected Specialty Summary Card */}
+            <div className="mb-6 glass-panel p-4 flex items-center gap-4 relative overflow-hidden shadow-md">
+              <div className="absolute right-[-10px] top-[-10px] opacity-[0.03] transform rotate-12 pointer-events-none">
+                <User className="w-24 h-24" />
+              </div>
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#1E88E5]/10 to-[#00BCD4]/10 flex items-center justify-center border border-[var(--card-border)] flex-shrink-0 relative z-10">
+                <User className="w-6 h-6 text-[#00BCD4]" />
+                <div 
+                  className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-[var(--card-bg)] flex items-center justify-center text-[6px] font-bold text-white shadow-sm" 
+                  style={{ backgroundColor: selectedApptSpecialty.color || '#1E88E5' }} 
                 />
+              </div>
+              <div className="flex-1 min-w-0 relative z-10">
+                <h3 className="font-extrabold text-[15px] text-[var(--foreground)] truncate">{selectedApptSpecialty.name}</h3>
+                <p className="text-[10px] text-emerald-500 mt-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wider bg-emerald-500/10 w-fit px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Asignación Automática
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* Date Input */}
+              <div className="glass-panel p-4 space-y-3">
+                <label className="flex items-center gap-1.5 text-[10px] font-black text-[#1E88E5] uppercase tracking-wider">
+                  <Calendar className="w-3.5 h-3.5" /> 1. Fecha de Cita
+                </label>
+                <div className="relative group">
+                  <input 
+                    type="date"
+                    required
+                    min={getTomorrowString()}
+                    className="w-full p-3.5 pl-11 rounded-xl bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-sm outline-none focus:border-[#00BCD4] focus:ring-2 focus:ring-[#00BCD4]/20 transition-all font-bold cursor-pointer shadow-inner group-hover:border-[#1E88E5]/50"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      setSelectedDate(e.target.value);
+                      setSelectedTime(''); // Reset time when date changes
+                    }}
+                  />
+                  <Calendar className="w-4 h-4 text-[#1E88E5] absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
               </div>
 
               {/* Time Slots (Only enabled if date selected) */}
               {selectedDate && (
-                <div className="p-4 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] shadow-sm space-y-3">
-                  <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider">2. Selecciona un horario disponible</label>
+                <div className="glass-panel p-4 space-y-3 animate-slide-up">
+                  <label className="flex items-center gap-1.5 text-[10px] font-black text-[#00BCD4] uppercase tracking-wider">
+                    <Clock className="w-3.5 h-3.5" /> 2. Horario Disponible
+                  </label>
                   
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-3 gap-2.5">
                     {TIME_SLOTS.map((slot) => (
                       <button
                         key={slot}
                         type="button"
                         onClick={() => setSelectedTime(slot)}
-                        className={`py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                        className={`py-2.5 rounded-xl text-[12px] font-extrabold transition-all duration-300 cursor-pointer active:scale-95 flex items-center justify-center gap-1.5 ${
                           selectedTime === slot
-                            ? 'bg-gradient-to-r from-[#1E88E5] to-[#00BCD4] border-transparent text-white shadow-md'
-                            : 'bg-[var(--input-bg)] border-[var(--card-border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]'
+                            ? 'bg-gradient-to-r from-[#1E88E5] to-[#00BCD4] text-white shadow-[0_4px_15px_rgba(0,188,212,0.4)] scale-[1.02] border-transparent'
+                            : 'bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--text-muted)] hover:text-[var(--foreground)] hover:border-[#00BCD4]/50 hover:bg-[#00BCD4]/5'
                         }`}
                       >
+                        {selectedTime === slot && <Sparkles className="w-3 h-3" />}
                         {slot}
                       </button>
                     ))}
@@ -1213,12 +1518,15 @@ export default function PwaPage() {
           </div>
 
           {selectedDate && selectedTime && (
-            <button
-              onClick={() => setStep('book_appt_form')}
-              className="w-full py-4 rounded-xl bg-gradient-to-r from-[#1E88E5] to-[#00BCD4] text-white font-extrabold text-sm tracking-wide shadow-lg hover:brightness-110 active:scale-[0.98] transition-all mt-6 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              Continuar al Formulario &rarr;
-            </button>
+            <div className="mt-8 animate-slide-up pb-4">
+              <button
+                onClick={() => setStep('book_appt_form')}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#1E88E5] to-[#00BCD4] text-white font-extrabold text-sm tracking-wide shadow-[0_8px_25px_rgba(30,136,229,0.4)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer relative overflow-hidden group"
+              >
+                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+                <span className="relative z-10 flex items-center gap-2">Continuar al Formulario <ChevronRight className="w-4 h-4" /></span>
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1330,15 +1638,89 @@ export default function PwaPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Correo Electrónico (Opcional)</label>
-                <input 
-                  type="email" 
-                  className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
-                  placeholder="Ej. correo@sjdios.org" 
-                  value={email} 
-                  onChange={e => setEmail(e.target.value)} 
-                />
+              <div className="pt-4 border-t border-[var(--card-border)] mt-4">
+                <h3 className="text-xs font-black text-[var(--foreground)] mb-3">Información Médica y Contacto</h3>
+                
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Dirección</label>
+                    <input 
+                      type="text" 
+                      required 
+                      className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
+                      placeholder="Ej. Av. Principal 123" 
+                      value={addressLine1} 
+                      onChange={e => setAddressLine1(e.target.value)} 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Ciudad</label>
+                    <input 
+                      type="text" 
+                      required 
+                      className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
+                      placeholder="Ej. Santa Cruz" 
+                      value={city} 
+                      onChange={e => setCity(e.target.value)} 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Contacto de Emergencia</label>
+                    <input 
+                      type="text" 
+                      required 
+                      className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
+                      placeholder="Nombre del familiar" 
+                      value={emergencyName} 
+                      onChange={e => setEmergencyName(e.target.value)} 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Teléfono Emergencia</label>
+                    <input 
+                      type="tel" 
+                      required 
+                      className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
+                      placeholder="Ej. 777-12345" 
+                      value={emergencyPhone} 
+                      onChange={e => setEmergencyPhone(e.target.value)} 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Tipo de Sangre</label>
+                    <select 
+                      className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
+                      value={bloodType} 
+                      onChange={e => setBloodType(e.target.value)}
+                    >
+                      <option value="UNKNOWN">Desconocido</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#556B8D] dark:text-[#8AA3C8] uppercase tracking-wider mb-1.5">Correo (Opcional)</label>
+                    <input 
+                      type="email" 
+                      className="w-full p-3 rounded-lg bg-[var(--input-bg)] border border-[var(--input-border)] text-[var(--foreground)] text-xs outline-none focus:border-[#00BCD4] transition-all"
+                      placeholder="Ej. correo@sjdios.org" 
+                      value={email} 
+                      onChange={e => setEmail(e.target.value)} 
+                    />
+                  </div>
+                </div>
               </div>
 
               <button
@@ -1444,9 +1826,281 @@ export default function PwaPage() {
       )}
 
       {/* Footer / Info */}
-      <footer className="text-center text-[10px] text-[#4A6080] dark:text-[#8AA3C8] border-t border-[rgba(139,163,200,0.06)] pt-4 mt-6">
-        Hospital San Juan de Dios · Project Faro v2.4 · FHIR Compliant
-      </footer>
+      {(step === 'welcome' || step === 'monitor') && (
+        <BottomNav 
+          currentTab={step === 'monitor' ? 'monitor' : currentTab} 
+          onChangeTab={(tab) => {
+            if (tab === 'monitor') {
+              setStep('monitor');
+            } else {
+              setStep('welcome');
+              setCurrentTab(tab);
+            }
+          }} 
+        />
+      )}
+
+      {/* TELEMEDICINA OVERLAY */}
+      {step === 'telemedicina' && (
+        <PatientTelemedicine 
+          onClose={() => setStep('welcome')}
+          patientName={activeTicket?.patient_name}
+        />
+      )}
+
+      {/* AMBULANCE REQUEST MODAL */}
+      {showAmbulanceModal && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+          <div className="bg-[#0b1329] border border-white/10 rounded-2xl w-full max-w-sm p-5 shadow-2xl flex flex-col gap-4 text-left max-h-[90vh] overflow-y-auto">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Siren className="w-5 h-5 text-red-500 animate-pulse" />
+                <h3 className="text-white font-extrabold text-base">Solicitud de Ambulancia</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowAmbulanceModal(false)}
+                className="text-white/60 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {gpsError ? (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-center space-y-3">
+                <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
+                <p className="text-xs text-red-400 font-semibold">{gpsError}</p>
+                <button 
+                  type="button"
+                  onClick={handleAmbulanceClick}
+                  className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded-lg cursor-pointer mx-auto block"
+                >
+                  Reintentar GPS
+                </button>
+              </div>
+            ) : ambulanceSuccess ? (
+              <div className="p-5 rounded-xl bg-green-500/10 border border-green-500/20 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto border border-green-500/30">
+                  <Check className="w-6 h-6 text-green-500" />
+                </div>
+                <div>
+                  <h4 className="text-green-500 font-extrabold text-lg">¡Solicitud Enviada!</h4>
+                  <p className="text-xs text-white/70 mt-2 leading-relaxed">
+                    Hemos recibido sus coordenadas GPS exactas. Un despachador de emergencias médicas se está comunicando con usted a su teléfono <strong>{phone}</strong> de inmediato.
+                  </p>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowAmbulanceModal(false)}
+                  className="w-full py-2.5 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-lg cursor-pointer"
+                >
+                  Entendido
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {/* Step 1: Select Triage Level */}
+                <div className="space-y-2">
+                  <label className="text-xs font-extrabold text-white/80 block uppercase tracking-wider">Gravedad del Caso *</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmbulanceTriageLevel('RED');
+                        setIsLeveCase(false);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center flex flex-col items-center justify-center gap-1 cursor-pointer transition-all ${
+                        ambulanceTriageLevel === 'RED' 
+                          ? 'bg-red-500/20 border-red-500 text-red-500 shadow-md scale-[1.03]' 
+                          : 'bg-black/20 border-white/10 text-white/60 hover:text-white'
+                      }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 block animate-ping" />
+                      <span className="text-[10px] font-black uppercase">Crítico</span>
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmbulanceTriageLevel('ORANGE');
+                        setIsLeveCase(false);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center flex flex-col items-center justify-center gap-1 cursor-pointer transition-all ${
+                        ambulanceTriageLevel === 'ORANGE' 
+                          ? 'bg-orange-500/20 border-orange-500 text-orange-500 shadow-md scale-[1.03]' 
+                          : 'bg-black/20 border-white/10 text-white/60 hover:text-white'
+                      }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-orange-500 block" />
+                      <span className="text-[10px] font-black uppercase">Grave</span>
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAmbulanceTriageLevel(null);
+                        setIsLeveCase(true);
+                      }}
+                      className={`p-2.5 rounded-xl border text-center flex flex-col items-center justify-center gap-1 cursor-pointer transition-all ${
+                        isLeveCase 
+                          ? 'bg-green-500/20 border-green-500 text-green-500 shadow-md scale-[1.03]' 
+                          : 'bg-black/20 border-white/10 text-white/60 hover:text-white'
+                      }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500 block" />
+                      <span className="text-[10px] font-black uppercase">Leve</span>
+                    </button>
+                  </div>
+                </div>
+
+                {isLeveCase ? (
+                  <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-center space-y-3">
+                    <Info className="w-6 h-6 text-green-500 mx-auto" />
+                    <p className="text-xs text-green-400 font-semibold leading-relaxed">
+                      Los casos leves no califican para despacho de ambulancia médica. Le sugerimos agendar una consulta normal o ingresar al Consultorio Virtual de Telemedicina.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAmbulanceModal(false);
+                          fetchBookingSpecialties();
+                          setStep('book_appt_specialties');
+                        }}
+                        className="flex-1 py-2 bg-blue-500 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-blue-600 text-center"
+                      >
+                        Reservar Cita
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAmbulanceModal(false);
+                          setStep('telemedicina');
+                        }}
+                        className="flex-1 py-2 bg-cyan-500 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-cyan-600 text-center"
+                      >
+                        Telemedicina
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {/* Patient identity fields */}
+                    <div className="space-y-3 border-t border-white/10 pt-3">
+                      <label className="text-[10px] font-extrabold text-white/40 block uppercase tracking-wider">Identificación del Afectado</label>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-white/60 block mb-1">Nombre *</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white" 
+                            placeholder="Nombre"
+                            value={firstName}
+                            onChange={(e) => setFirstName(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-white/60 block mb-1">Apellido *</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white" 
+                            placeholder="Apellido"
+                            value={lastName}
+                            onChange={(e) => setLastName(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-white/60 block mb-1">Documento CI *</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono" 
+                            placeholder="DNI / Cédula"
+                            value={ciPassport}
+                            onChange={(e) => setCiPassport(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-white/60 block mb-1">Celular Contacto *</label>
+                          <input 
+                            type="tel" 
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white" 
+                            placeholder="Celular"
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-white/60 block mb-1">Fecha Nacimiento *</label>
+                          <input 
+                            type="date" 
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-xs text-white" 
+                            value={birthDate}
+                            onChange={(e) => setBirthDate(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-white/60 block mb-1">Género *</label>
+                          <select 
+                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white" 
+                            value={gender}
+                            onChange={(e) => setGender(e.target.value)}
+                          >
+                            <option value="MALE">Masculino</option>
+                            <option value="FEMALE">Femenino</option>
+                            <option value="OTHER">Otro</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Complaint/Details */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-white/60 block">Sintomatología o Detalle del Caso</label>
+                      <textarea 
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white h-16 resize-none" 
+                        placeholder="Ej. Dolor torácico, dificultad para respirar..."
+                        value={ambulanceComplaint}
+                        onChange={(e) => setAmbulanceComplaint(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Submit Button */}
+                    <button
+                      type="button"
+                      disabled={sendingAmbulanceReq}
+                      onClick={handleSendAmbulanceRequest}
+                      className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-extrabold text-sm rounded-xl transition-all shadow-[0_0_15px_rgba(239,83,80,0.3)] flex items-center justify-center gap-2 cursor-pointer mt-2"
+                    >
+                      {sendingAmbulanceReq ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Enviando Emergencia...
+                        </>
+                      ) : (
+                        <>
+                          <Siren className="w-4 h-4" />
+                          Despachar Ambulancia
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+      </div>
     </main>
   );
 }

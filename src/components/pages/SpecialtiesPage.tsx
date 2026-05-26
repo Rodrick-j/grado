@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase';
 import { Icon } from '@/components/Icon';
+import { SPECIALTIES } from '@/lib/data';
 
 type Specialty = {
   id: string;
@@ -59,10 +60,11 @@ export function SpecialtiesPage() {
     const enhanced = (spData || []).map(sp => {
       const spProfs = (profData || []).filter(p => p.specialty_id === sp.id);
       const spAppts = (apptData || []).filter(a => a.specialty_id === sp.id);
+      const dataItem = SPECIALTIES.find(s => s.code === sp.code);
 
       return {
         ...sp,
-        icon: 'Stethoscope',
+        icon: dataItem?.icon || 'Stethoscope',
         headDoctor: spProfs.length > 0 ? (spProfs[0].user_profiles as any)?.full_name : 'No Asignado',
         activeDoctors: spProfs.length,
         activePatients: spAppts.length,

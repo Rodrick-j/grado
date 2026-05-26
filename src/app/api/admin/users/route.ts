@@ -18,7 +18,17 @@ export async function POST(req: Request) {
           professionals!professionals_user_id_fkey(license_number)
         `);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json(data);
+
+      const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
+      const merged = data.map((profile: any) => {
+        const authUser = authData?.users.find((u: any) => u.id === profile.id);
+        return {
+          ...profile,
+          email: authUser?.email || 'usuario@sjdios.org'
+        };
+      });
+
+      return NextResponse.json(merged);
     }
 
     const { email, password, full_name, role, specialty_id, license_number } = body;

@@ -1,8 +1,10 @@
 import { AppShell } from '@/components/AppShell';
-import { RBACPage } from '@/components/pages/RBACPage';
 import { RoleGuard } from '@/components/RoleGuard';
+import { RBACPage } from '@/components/pages/RBACPage';
 
-export default function RolesRoute() {
+export const metadata = { title: 'Gestión de Accesos (RBAC) — Hospital San Juan de Dios' };
+
+export default function Page() {
   return (
     <AppShell>
       <RoleGuard allowedRoles={['SUPER_ADMIN']}>

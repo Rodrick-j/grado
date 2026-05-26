@@ -216,18 +216,18 @@ export function LaboratoryPage() {
 
   return (
     <div className="animate-fade-in">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button onClick={() => router.back()} className="btn-ghost" style={{ padding: 8 }}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <button onClick={() => router.back()} className="btn-ghost" style={{ padding: 8, flexShrink: 0 }}>
             <Icon name="ArrowLeft" size={20} />
           </button>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Laboratorio LIS</h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Sistema de Información de Laboratorio · Control y Resultados</p>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className="max-sm:text-lg">Laboratorio LIS</h1>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Sistema de Información de Laboratorio · Control y Resultados</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setTab('new')} className="btn-primary">
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button onClick={() => setTab('new')} className="btn-primary w-full sm:w-auto" style={{ justifyContent: 'center' }}>
             <Icon name="Plus" size={14} /> Nueva Orden
           </button>
         </div>

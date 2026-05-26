@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Icon } from '@/components/Icon';
+import { createClient } from '@/lib/supabase';
 
 interface NewsScores {
   respRate: number;
@@ -24,6 +25,8 @@ export function SepsisPage() {
 
   const [total, setTotal] = useState(0);
   const [riskLevel, setRiskLevel] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('LOW');
+  const [isSaving, setIsSaving] = useState(false);
+  const supabase = createClient();
 
   useEffect(() => {
     const sum = Object.values(scores).reduce((a, b) => a + b, 0);
@@ -61,6 +64,28 @@ export function SepsisPage() {
     if (riskLevel === 'HIGH') return 'Respuesta de emergencia inmediata. Evaluación urgente por equipo médico. Considerar protocolo de Sepsis (Sepsis Six). Monitorización continua.';
     if (riskLevel === 'MEDIUM') return 'Revisión urgente por médico a cargo. Incrementar frecuencia de monitorización a mínimo cada 1 hora.';
     return 'Continuar monitorización rutinaria (cada 12 horas o según protocolo base).';
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    const { error } = await supabase.from('sepsis_assessments').insert([{
+      resp_rate: scores.respRate,
+      spo2: scores.spo2,
+      temp: scores.temp,
+      sbp: scores.sbp,
+      hr: scores.hr,
+      avpu: scores.avpu,
+      total_score: total,
+      risk_level: riskLevel
+    }]);
+    
+    setIsSaving(false);
+    if (error) {
+      alert('Error al guardar el screening: ' + error.message);
+    } else {
+      alert('Screening guardado exitosamente.');
+      setScores({ respRate: 0, spo2: 0, temp: 0, sbp: 0, hr: 0, avpu: 0 });
+    }
   };
 
   // Option buttons renderer
@@ -230,8 +255,13 @@ export function SepsisPage() {
             </div>
             
             <div style={{ marginTop: 24, width: '100%' }}>
-              <button className="btn-primary" style={{ width: '100%', padding: 14, fontSize: 16 }}>
-                Guardar Screening
+              <button 
+                onClick={handleSave} 
+                disabled={isSaving}
+                className="btn-primary" 
+                style={{ width: '100%', padding: 14, fontSize: 16, opacity: isSaving ? 0.7 : 1 }}
+              >
+                {isSaving ? 'Guardando...' : 'Guardar Screening'}
               </button>
             </div>
           </div>

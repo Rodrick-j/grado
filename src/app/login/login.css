@@ -1,0 +1,60 @@
+@keyframes spinRing  { to { transform:rotate(360deg); } }
+@keyframes pulseDot  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+@keyframes scanLine  { 0%{top:-2px;opacity:0} 8%{opacity:.7} 92%{opacity:.7} 100%{top:100%;opacity:0} }
+@keyframes float1    { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-22px,32px)} }
+@keyframes float2    { 0%,100%{transform:translate(0,0)} 50%{transform:translate(18px,-28px)} }
+@keyframes slideDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+@keyframes spin      { to{transform:rotate(360deg)} }
+@keyframes pulseLine { 0%,100%{opacity:0.3} 50%{opacity:0.8} }
+@keyframes fadeIn    { from{opacity:0} to{opacity:1} }
+@keyframes slideUp   { from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:translateY(0)} }
+
+input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+  -webkit-box-shadow:0 0 0 1000px rgba(4,14,32,0.99) inset !important;
+  -webkit-text-fill-color:#fff !important; caret-color:#00BCD4;
+}
+input::placeholder { color:rgba(255,255,255,0.22) !important; }
+
+/* RESPONSIVE STYLES */
+.login-top-bar { flex-direction: row; }
+.login-main-row { flex-direction: row; }
+.login-branding { align-items: flex-start; text-align: left; }
+.login-branding p { text-align: left; }
+.login-stats { flex-wrap: nowrap; }
+.login-right-panel { display: flex; }
+.login-bottom-bar { flex-direction: row; }
+
+@media (max-width: 1100px) {
+  .login-right-panel { display: none !important; }
+}
+
+@media (max-width: 900px) {
+  .login-main-row {
+    flex-direction: column !important;
+    padding: 10px 16px !important;
+    gap: 10px !important;
+  }
+  .login-branding {
+    align-items: center !important;
+    text-align: center !important;
+    gap: 10px !important;
+  }
+  .login-branding p { text-align: center !important; display: none; }
+  .login-stats { display: none !important; }
+}
+
+/* COMPACT HEIGHT SCREENS (Laptops) */
+@media (max-height: 750px) {
+  .login-main-row { padding: 5px 20px !important; gap: 15px !important; }
+  .login-top-bar { padding: 6px 20px !important; }
+  .login-bottom-bar { padding: 6px 20px !important; }
+  h1 { font-size: 28px !important; margin-bottom: 5px !important; }
+  h2 { font-size: 18px !important; }
+  .login-branding p { font-size: 11px !important; margin-bottom: 5px !important; }
+  .login-stats > div { padding: 6px 4px !important; }
+  .login-stats span:nth-child(2) { font-size: 14px !important; }
+  .glass-card-center { padding: 15px 20px 12px !important; }
+  input { padding: 8px 12px 8px 36px !important; font-size: 12px !important; }
+  .welcome-card-login { padding: 8px 12px !important; margin-bottom: 8px !important; }
+  button[type="submit"] { padding: 10px !important; font-size: 12px !important; }
+}

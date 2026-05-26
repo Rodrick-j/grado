@@ -1,142 +1,140 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase";
 import { 
-  Video, 
-  VideoOff, 
-  Mic, 
-  MicOff, 
-  MonitorUp, 
-  PhoneOff, 
   MessageCircle, 
   FileText, 
   Send,
-  User,
-  Settings,
-  MoreVertical,
-  Maximize
 } from "lucide-react";
+import { JitsiMeeting } from '@jitsi/react-sdk';
 
 export default function TelemedicinaPage() {
-  const [micOn, setMicOn] = useState(true);
-  const [videoOn, setVideoOn] = useState(true);
   const [chatMessage, setChatMessage] = useState("");
   const [notes, setNotes] = useState("");
   const [activeTab, setActiveTab] = useState("chat");
+  const [messages, setMessages] = useState<any[]>([]);
+  const [callId, setCallId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
-  const toggleMic = () => setMicOn(!micOn);
-  const toggleVideo = () => setVideoOn(!videoOn);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const supabase = React.useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    // We get or create an active call for the mock demo
+    const initCall = async () => {
+      const { data: existing } = await supabase.from('telemedicine_calls').select('*').eq('status', 'ACTIVE').limit(1).single();
+      if (existing) {
+        setCallId(existing.id);
+        setNotes(existing.notes || "");
+      } else {
+        const { data: newCall } = await supabase.from('telemedicine_calls').insert([{ status: 'ACTIVE' }]).select().single();
+        if (newCall) {
+          setCallId(newCall.id);
+        }
+      }
+    };
+    initCall();
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!callId) return;
+
+    const fetchMessages = async () => {
+      const { data } = await supabase.from('telemedicine_messages').select('*').eq('call_id', callId).order('created_at', { ascending: true });
+      if (data) setMessages(data);
+    };
+    fetchMessages();
+
+    const channel = supabase.channel('chat_changes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemedicine_messages', filter: `call_id=eq.${callId}` }, (payload) => {
+        setMessages(prev => [...prev, payload.new]);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [callId, supabase]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatMessage.trim() || !callId) return;
+
+    await supabase.from('telemedicine_messages').insert([{
+      call_id: callId,
+      sender: 'DOCTOR',
+      message: chatMessage
+    }]);
+
+    setChatMessage("");
+  };
+
+  const handleSaveNotes = async () => {
+    if (!callId) return;
+    const { error } = await supabase.from('telemedicine_calls').update({ notes }).eq('id', callId);
+    if (!error) {
+      alert("Notas guardadas correctamente.");
+    }
+  };
 
   return (
-    <div className="animate-fade-in" style={{ height: 'calc(100vh - 80px)', width: '100%', display: 'flex', backgroundColor: '#020617', color: 'white', overflow: 'hidden', padding: '16px', gap: '16px' }}>
+    <div className="animate-fade-in" style={{ height: 'calc(100vh - 80px)', width: '100%', display: 'flex', flexDirection: isMobile ? 'column' : 'row', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', overflow: 'hidden', padding: '16px', gap: '20px' }}>
       
       {/* LEFT: Main Video Area */}
-      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', borderRadius: '1rem', overflow: 'hidden', backgroundColor: '#0f172a', border: '1px solid #1e293b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
-        
-        {/* Main Video (Patient) */}
-        <div style={{ flex: 1, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', background: 'linear-gradient(to bottom right, #1e293b, #0f172a)' }}>
-          <div style={{ position: 'absolute', top: '24px', left: '24px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)', padding: '8px 16px', borderRadius: '9999px', fontSize: '14px', fontWeight: 500, border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '9999px', backgroundColor: '#ef4444', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}></span>
-              00:15:23
-            </div>
-            <div style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(12px)', padding: '8px 16px', borderRadius: '9999px', fontSize: '14px', fontWeight: 500, border: '1px solid rgba(255,255,255,0.1)' }}>
-              Paciente: Juan Pérez (ID: 98321)
-            </div>
-          </div>
-          
-          <div style={{ position: 'absolute', top: '24px', right: '24px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '8px' }}>
-             <button style={{ borderRadius: '9999px', backgroundColor: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(12px)', color: 'white', border: '1px solid rgba(255,255,255,0.1)', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-               <Maximize style={{ width: '16px', height: '16px' }} />
-             </button>
-          </div>
-
-          {/* Avatar Placeholder for Patient */}
-          <div style={{ width: '192px', height: '192px', borderRadius: '9999px', backgroundColor: 'rgba(51, 65, 85, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '4px solid rgba(71, 85, 105, 0.3)', backdropFilter: 'blur(24px)', position: 'relative', overflow: 'hidden' }}>
-            <User style={{ width: '80px', height: '80px', color: '#94a3b8' }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top right, rgba(59, 130, 246, 0.1), transparent)' }}></div>
-          </div>
-
-          {/* PIP Video (Doctor/You) */}
-          <div style={{ position: 'absolute', bottom: '24px', right: '24px', width: '256px', height: '160px', backgroundColor: '#1e293b', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '2px solid rgba(51, 65, 85, 0.5)', zIndex: 20 }}>
-            {videoOn ? (
-              <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom right, #334155, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                 <User style={{ width: '48px', height: '48px', color: '#94a3b8' }} />
-                 <div style={{ position: 'absolute', bottom: '8px', left: '8px', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
-                   Tú (Dr. López)
-                 </div>
-                 {!micOn && (
-                   <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#ef4444', borderRadius: '9999px', padding: '4px' }}>
-                     <MicOff style={{ width: '12px', height: '12px', color: 'white' }} />
-                   </div>
-                 )}
-              </div>
-            ) : (
-              <div style={{ width: '100%', height: '100%', backgroundColor: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '9999px', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <User style={{ width: '24px', height: '24px', color: '#64748b' }} />
-                </div>
-                 <div style={{ position: 'absolute', bottom: '8px', left: '8px', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>
-                   Tú (Dr. López)
-                 </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Floating Bottom Bar */}
-        <div style={{ position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.1)', padding: '16px 24px', borderRadius: '9999px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', zIndex: 30 }}>
-          
-          <button 
-            onClick={toggleMic}
-            style={{ borderRadius: '9999px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: micOn ? 'none' : '1px solid rgba(239, 68, 68, 0.5)', cursor: 'pointer', backgroundColor: micOn ? '#334155' : 'rgba(239, 68, 68, 0.2)', color: micOn ? 'white' : '#ef4444' }}
-          >
-            {micOn ? <Mic style={{ width: '20px', height: '20px' }} /> : <MicOff style={{ width: '20px', height: '20px' }} />}
-          </button>
-
-          <button 
-            onClick={toggleVideo}
-            style={{ borderRadius: '9999px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: videoOn ? 'none' : '1px solid rgba(239, 68, 68, 0.5)', cursor: 'pointer', backgroundColor: videoOn ? '#334155' : 'rgba(239, 68, 68, 0.2)', color: videoOn ? 'white' : '#ef4444' }}
-          >
-            {videoOn ? <Video style={{ width: '20px', height: '20px' }} /> : <VideoOff style={{ width: '20px', height: '20px' }} />}
-          </button>
-
-          <button style={{ borderRadius: '9999px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#334155', color: 'white', border: 'none', cursor: 'pointer' }}>
-            <MonitorUp style={{ width: '20px', height: '20px' }} />
-          </button>
-
-          <button style={{ borderRadius: '9999px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#334155', color: 'white', border: 'none', cursor: 'pointer' }}>
-            <Settings style={{ width: '20px', height: '20px' }} />
-          </button>
-
-          <button style={{ borderRadius: '9999px', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#334155', color: 'white', border: 'none', cursor: 'pointer' }}>
-            <MoreVertical style={{ width: '20px', height: '20px' }} />
-          </button>
-
-          <div style={{ width: '1px', height: '32px', backgroundColor: 'rgba(255,255,255,0.1)', margin: '0 8px' }}></div>
-
-          <button style={{ borderRadius: '9999px', padding: '0 24px', height: '48px', display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#dc2626', color: 'white', fontWeight: 500, border: 'none', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.2)' }}>
-            <PhoneOff style={{ width: '20px', height: '20px' }} />
-            Terminar
-          </button>
-        </div>
+      <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', borderRadius: '24px', overflow: 'hidden', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', boxShadow: 'var(--shadow-lg)' }}>
+        {React.useMemo(() => (
+          <JitsiMeeting
+              domain="alpha.jitsi.net"
+              roomName={`Faro-Consulta-ID-98321-${callId?.substring(0,6) || 'demo'}`}
+              configOverwrite={{
+                  startWithAudioMuted: false,
+                  startWithVideoMuted: false,
+                  prejoinPageEnabled: false,
+                  prejoinConfig: { enabled: false },
+                  disableDeepLinking: true,
+              }}
+              interfaceConfigOverwrite={{
+                  DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+                  HIDE_INVITE_MORE_HEADER: true,
+                  MOBILE_APP_PROMO: false,
+                  SHOW_PROMOTIONAL_CLOSE_PAGE: false,
+                  SHOW_CHROME_EXTENSION_BANNER: false
+              }}
+              userInfo={{
+                  displayName: 'Dr. Administrador',
+                  email: 'admin@hospital.com'
+              }}
+              getIFrameRef={(iframeRef) => {
+                  iframeRef.style.height = '100%';
+                  iframeRef.style.width = '100%';
+                  iframeRef.style.border = 'none';
+              }}
+          />
+        ), [callId])}
       </div>
 
       {/* RIGHT: Side Panel */}
-      <div style={{ width: '380px', height: '100%', backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '1rem', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', overflow: 'hidden' }}>
+      <div style={{ width: isMobile ? '100%' : '420px', height: isMobile ? '50%' : '100%', backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', borderRadius: '24px', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-md)', overflow: 'hidden' }}>
         
-        <div style={{ padding: '16px', borderBottom: '1px solid #1e293b', backgroundColor: 'rgba(15, 23, 42, 0.5)' }}>
-          <div style={{ display: 'flex', backgroundColor: '#1e293b', padding: '4px', borderRadius: '8px' }}>
+        <div style={{ padding: '16px', borderBottom: '1px solid var(--border-secondary)', backgroundColor: 'var(--bg-card)' }}>
+          <div style={{ display: 'flex', backgroundColor: 'var(--bg-primary)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-secondary)' }}>
             <button 
               onClick={() => setActiveTab('chat')}
-              style={{ flex: 1, padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: activeTab === 'chat' ? '#2563eb' : 'transparent', color: activeTab === 'chat' ? 'white' : '#94a3b8', fontSize: '14px', fontWeight: 500 }}
+              style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: activeTab === 'chat' ? 'linear-gradient(135deg, var(--color-blue), var(--color-blue-dark))' : 'transparent', color: activeTab === 'chat' ? 'white' : 'var(--text-muted)', fontSize: '13px', fontWeight: 600, transition: 'all 0.2s', boxShadow: activeTab === 'chat' ? 'var(--shadow-sm)' : 'none' }}
             >
               <MessageCircle style={{ width: '16px', height: '16px' }} />
               Chat
             </button>
             <button 
               onClick={() => setActiveTab('notes')}
-              style={{ flex: 1, padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', borderRadius: '4px', border: 'none', cursor: 'pointer', backgroundColor: activeTab === 'notes' ? '#2563eb' : 'transparent', color: activeTab === 'notes' ? 'white' : '#94a3b8', fontSize: '14px', fontWeight: 500 }}
+              style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: activeTab === 'notes' ? 'linear-gradient(135deg, var(--color-blue), var(--color-blue-dark))' : 'transparent', color: activeTab === 'notes' ? 'white' : 'var(--text-muted)', fontSize: '13px', fontWeight: 600, transition: 'all 0.2s', boxShadow: activeTab === 'notes' ? 'var(--shadow-sm)' : 'none' }}
             >
               <FileText style={{ width: '16px', height: '16px' }} />
               Notas Médicas
@@ -147,44 +145,45 @@ export default function TelemedicinaPage() {
         {activeTab === 'chat' && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '12px', color: '#94a3b8', marginLeft: '8px' }}>Paciente - 10:02 AM</span>
-                <div style={{ backgroundColor: '#1e293b', padding: '8px 16px', borderRadius: '16px', borderTopLeftRadius: '4px', fontSize: '14px', color: '#e2e8f0', border: '1px solid rgba(51, 65, 85, 0.5)', maxWidth: '85%' }}>
-                  Buenos días doctor, sí, he sentido mucho dolor en la garganta desde ayer.
+              {messages.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', marginTop: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', backgroundColor: 'var(--bg-primary)', border: '1px dashed var(--border-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <MessageCircle style={{ width: 20, height: 20, color: 'var(--text-muted)' }} />
+                  </div>
+                  No hay mensajes en esta consulta.
                 </div>
-              </div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
-                <span style={{ fontSize: '12px', color: '#94a3b8', marginRight: '8px' }}>Tú - 10:04 AM</span>
-                <div style={{ backgroundColor: '#2563eb', padding: '8px 16px', borderRadius: '16px', borderTopRightRadius: '4px', fontSize: '14px', color: 'white', maxWidth: '85%' }}>
-                  Comprendo Juan. ¿Has tenido fiebre o dificultad para tragar?
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '12px', color: '#94a3b8', marginLeft: '8px' }}>Paciente - 10:05 AM</span>
-                <div style={{ backgroundColor: '#1e293b', padding: '8px 16px', borderRadius: '16px', borderTopLeftRadius: '4px', fontSize: '14px', color: '#e2e8f0', border: '1px solid rgba(51, 65, 85, 0.5)', maxWidth: '85%' }}>
-                  Un poco de fiebre anoche, unos 38 grados.
-                </div>
-              </div>
+              ) : (
+                messages.map((msg, idx) => {
+                  const isDoctor = msg.sender === 'DOCTOR';
+                  return (
+                    <div key={idx} className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: isDoctor ? 'flex-end' : 'flex-start' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: isDoctor ? 0 : '8px', marginRight: isDoctor ? '8px' : 0, fontWeight: 600 }}>
+                        {isDoctor ? 'Tú (Dr. Administrador)' : 'Paciente'} - {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <div style={{ background: isDoctor ? 'linear-gradient(135deg, var(--color-blue), var(--color-blue-dark))' : 'var(--bg-primary)', padding: '10px 16px', borderRadius: isDoctor ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '13px', color: isDoctor ? 'white' : 'var(--text-primary)', border: isDoctor ? 'none' : '1px solid var(--border-secondary)', maxWidth: '85%', boxShadow: isDoctor ? 'var(--shadow-glow-blue)' : 'var(--shadow-sm)' }}>
+                        {msg.message}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
             
-            <div style={{ padding: '16px', backgroundColor: 'rgba(15, 23, 42, 0.8)', borderTop: '1px solid #1e293b' }}>
+            <div style={{ padding: '16px', backgroundColor: 'var(--bg-card)', borderTop: '1px solid var(--border-secondary)' }}>
               <form 
                 style={{ display: 'flex', gap: '8px' }}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (chatMessage.trim()) setChatMessage("");
-                }}
+                onSubmit={handleSendMessage}
               >
                 <input 
                   placeholder="Escribe un mensaje..." 
-                  style={{ flex: 1, backgroundColor: '#1e293b', border: '1px solid #334155', color: 'white', borderRadius: '9999px', padding: '0 16px', fontSize: '14px', outline: 'none' }}
+                  style={{ flex: 1, backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-secondary)', color: 'var(--text-primary)', borderRadius: '9999px', padding: '0 16px', fontSize: '13px', outline: 'none', transition: 'all 0.2s' }}
+                  onFocus={(e) => e.target.style.borderColor = 'var(--color-blue)'}
+                  onBlur={(e) => e.target.style.borderColor = 'var(--border-secondary)'}
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                 />
-                <button type="submit" style={{ borderRadius: '9999px', backgroundColor: '#2563eb', color: 'white', border: 'none', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                  <Send style={{ width: '16px', height: '16px' }} />
+                <button type="submit" style={{ borderRadius: '9999px', background: 'linear-gradient(135deg, var(--color-blue), var(--color-blue-dark))', color: 'white', border: 'none', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, boxShadow: 'var(--shadow-glow-blue)' }}>
+                  <Send style={{ width: '16px', height: '16px', marginLeft: '-2px' }} />
                 </button>
               </form>
             </div>
@@ -193,22 +192,29 @@ export default function TelemedicinaPage() {
 
         {activeTab === 'notes' && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px', gap: '16px' }}>
-            <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '12px', padding: '16px' }}>
-              <h4 style={{ fontWeight: 500, color: '#60a5fa', marginBottom: '4px', fontSize: '14px', margin: 0 }}>Plantilla: Consulta General</h4>
-              <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Las notas se guardarán automáticamente en la historia clínica del paciente.</p>
+            <div style={{ backgroundColor: 'rgba(30, 136, 229, 0.08)', border: '1px solid rgba(30, 136, 229, 0.2)', borderRadius: '12px', padding: '16px', display: 'flex', gap: '12px' }}>
+              <div style={{ width: 32, height: 32, borderRadius: '8px', backgroundColor: 'rgba(30, 136, 229, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <FileText style={{ width: 16, height: 16, color: 'var(--color-blue)' }} />
+              </div>
+              <div>
+                <h4 style={{ fontWeight: 700, color: 'var(--color-blue)', marginBottom: '4px', fontSize: '13px', margin: 0 }}>Plantilla: Consulta General</h4>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>Las notas se guardarán automáticamente en la historia clínica del paciente al finalizar la consulta.</p>
+              </div>
             </div>
             <textarea 
-              placeholder="Motivo de consulta, síntomas, observaciones..."
-              style={{ flex: 1, resize: 'none', backgroundColor: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', padding: '16px', borderRadius: '12px', fontSize: '14px', outline: 'none', fontFamily: 'inherit' }}
+              placeholder="Escriba aquí el motivo de consulta, síntomas presentados y observaciones médicas..."
+              style={{ flex: 1, resize: 'none', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-secondary)', color: 'var(--text-primary)', padding: '16px', borderRadius: '12px', fontSize: '13px', outline: 'none', fontFamily: 'inherit', lineHeight: 1.6, transition: 'all 0.2s' }}
+              onFocus={(e) => e.target.style.borderColor = 'var(--color-blue)'}
+              onBlur={(e) => e.target.style.borderColor = 'var(--border-secondary)'}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '8px 16px', borderRadius: '6px', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={() => setNotes("")} className="btn-ghost" style={{ padding: '10px 20px' }}>
                 Limpiar
               </button>
-              <button style={{ backgroundColor: '#2563eb', border: 'none', color: 'white', padding: '8px 16px', borderRadius: '6px', fontSize: '14px', fontWeight: 500, cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)' }}>
-                Guardar Nota
+              <button onClick={handleSaveNotes} className="btn-primary" style={{ padding: '10px 20px' }}>
+                Guardar Nota Médica
               </button>
             </div>
           </div>

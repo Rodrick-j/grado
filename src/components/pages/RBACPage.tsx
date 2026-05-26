@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ROLE_LABELS, ROLE_COLORS, type UserRole } from '@/lib/data';
 import { Icon } from '@/components/Icon';
-import { createClient } from '@/lib/supabase';
+
 
 const PERMISSIONS = [
   { resource: 'Historia Clínica (EHR)', read: ['SUPER_ADMIN', 'MEDICAL_DIRECTOR', 'DOCTOR', 'RESIDENT', 'NURSE'], write: ['DOCTOR', 'RESIDENT'], delete: [] },
@@ -50,17 +50,10 @@ export function RBACPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'FETCH_ALL' })
       });
+      if (!res.ok) throw new Error('Error fetching users');
       const data = await res.json();
-      if (!data || data.error) throw new Error(data?.error || 'Error fetching users');
-
-      const mapped = data.map((u: any) => {
-        // We simulate the email here because auth.users is restricted from client side
-        const cleanName = u.full_name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        const nameParts = cleanName.split(' ');
-        const firstLetter = nameParts[0]?.charAt(0) || '';
-        const lastName = nameParts[nameParts.length - 1] || '';
-        const email = firstLetter && lastName ? `${firstLetter}.${lastName}@sjdios.org` : 'usuario@sjdios.org';
-
+      
+      const mapped = (data || []).map((u: any) => {
         let access = 'Acceso estándar según rol asignado en el sistema.';
         if (u.role === 'SUPER_ADMIN') access = 'Acceso total del sistema, auditorías globales y administración de personal.';
         if (u.role === 'MEDICAL_DIRECTOR') access = 'Control y supervisión de especialidades, coordinación médica y flujos clínicos.';
@@ -74,7 +67,7 @@ export function RBACPage() {
           roleLabel: ROLE_LABELS[u.role as UserRole] || u.role,
           role: u.role,
           active: u.active,
-          email: email,
+          email: u.email,
           name: u.full_name,
           access: access,
           license: license,
@@ -89,12 +82,27 @@ export function RBACPage() {
 
   useEffect(() => {
     fetchUsers();
-    // Fetch specialties for clinical form
+    // Fetch specialties using standard fetch for public data
     const fetchSpecialties = async () => {
-      const { data } = await createClient().from('specialties').select('id, name').eq('active', true);
-      if (data) setSpecialties(data);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/specialties?select=id,name&active=eq.true`, {
+          headers: {
+            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSpecialties(data);
+        }
+      } catch (err) {
+        console.error('Error fetching specialties', err);
+      }
     };
-    fetchSpecialties();
+    if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      fetchSpecialties();
+    }
   }, []);
 
   const handleCreateUser = async () => {
@@ -103,11 +111,19 @@ export function RBACPage() {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          full_name: form.full_name,
+          role: form.role,
+          specialty_id: form.specialty_id,
+          license_number: form.license_number
+        })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
       
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error creating user');
+
       alert(`Usuario ${form.full_name} creado exitosamente.`);
       setShowModal(false);
       setForm({ full_name: '', email: '', password: '', role: 'RECEPTIONIST', specialty_id: '', license_number: '' });
@@ -121,12 +137,12 @@ export function RBACPage() {
 
   const handleToggleActive = async (userId: string) => {
     try {
-      const res = await fetch('/api/admin/users', {
+      await fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId, action: 'TOGGLE_ACTIVE' })
       });
-      if (res.ok) fetchUsers();
+      fetchUsers();
     } catch (err) {
       console.error(err);
     }
@@ -140,22 +156,24 @@ export function RBACPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: pwdModal.userId, action: 'RESET_PASSWORD', password: pwdModal.newPwd })
       });
-      if (res.ok) {
-        alert('Contraseña actualizada correctamente.');
-        setPwdModal({ show: false, userId: '', newPwd: '' });
-      } else {
-        const d = await res.json();
-        alert('Error: ' + d.error);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Error updating auth password');
       }
-    } catch (err) {
+      
+      alert('Contraseña actualizada correctamente.');
+      setPwdModal({ show: false, userId: '', newPwd: '' });
+      fetchUsers();
+    } catch (err: any) {
       console.error(err);
+      alert('Error: ' + err.message);
     }
   };
 
   const filteredUsers = dbUsers.filter(u => 
-    u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.roleLabel.toLowerCase().includes(searchQuery.toLowerCase())
+    (u.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.roleLabel || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const inp = { background: 'var(--bg-card)', border: '1px solid var(--border-secondary)', borderRadius: 8, color: 'var(--text-primary)', padding: '10px 12px', fontSize: 13, width: '100%', outline: 'none' };
@@ -238,7 +256,7 @@ export function RBACPage() {
                     <tr key={user.id} style={{ borderBottom: '1px solid var(--border-secondary)', transition: 'background 0.2s', opacity: user.active ? 1 : 0.5 }} className="hover:bg-[rgba(255,255,255,0.01)]">
                       <td style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${color} 0%, ${color}aa 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 11, flexShrink: 0 }}>
-                          {user.name.substring(0, 2).toUpperCase()}
+                          {(user.name || 'U').substring(0, 2).toUpperCase()}
                         </div>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{user.name}</div>

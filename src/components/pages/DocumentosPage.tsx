@@ -293,9 +293,16 @@ export function DocumentosPage() {
   useEffect(() => {
     supabase
       .from('professionals')
-      .select('id, full_name, specialty')
-      .order('full_name')
-      .then(({ data }) => setProfessionals((data as Professional[]) || []));
+      .select('id,title,user_profiles!professionals_user_id_fkey(full_name),specialties!professionals_specialty_id_fkey(name)')
+      .then(({ data }) => {
+        const mapped = (data || []).map((d: any) => ({
+          id: d.id,
+          full_name: `${d.title || ''} ${d.user_profiles?.full_name || ''}`.trim(),
+          specialty: d.specialties?.name || null
+        }));
+        mapped.sort((a, b) => a.full_name.localeCompare(b.full_name));
+        setProfessionals(mapped);
+      });
   }, []);
 
   // ── Fetch patients for search ───────────────────────────────────────────────
@@ -307,12 +314,37 @@ export function DocumentosPage() {
     const timer = setTimeout(async () => {
       const { data } = await supabase
         .from('patients')
-        .select('id,first_name,last_name,mrn,birth_date,insurance_plan,primary_physician')
+        .select(`
+          id,
+          first_name,
+          last_name,
+          mrn,
+          birth_date,
+          insurance_provider,
+          professionals!patients_primary_doctor_id_fkey(
+            title,
+            user_profiles!professionals_user_id_fkey(full_name)
+          )
+        `)
         .or(
           `first_name.ilike.%${patientSearch}%,last_name.ilike.%${patientSearch}%,mrn.ilike.%${patientSearch}%`
         )
         .limit(8);
-      setPatients((data as Patient[]) || []);
+
+      const mapped: Patient[] = (data || []).map((p: any) => {
+        const doc = p.professionals;
+        const doctorName = doc ? `${doc.title || ''} ${doc.user_profiles?.full_name || ''}`.trim() : null;
+        return {
+          id: p.id,
+          first_name: p.first_name,
+          last_name: p.last_name,
+          mrn: p.mrn,
+          birth_date: p.birth_date,
+          insurance_plan: p.insurance_provider || null,
+          primary_physician: doctorName
+        };
+      });
+      setPatients(mapped);
     }, 300);
     return () => clearTimeout(timer);
   }, [patientSearch]);
@@ -390,6 +422,25 @@ export function DocumentosPage() {
     return `${conf.label} — ${patName}`;
   }
 
+  function getSelectedDoctorId(): string | null {
+    if (!selectedType) return null;
+    switch (selectedType) {
+      case 'DISCHARGE_SUMMARY':
+        return dischargeSummary.responsible_doctor || null;
+      case 'MEDICAL_CERT':
+        return medicalCert.signing_doctor || null;
+      case 'PRESCRIPTION_PRINT':
+        return prescriptionFields.prescriber_doctor || null;
+      case 'REFERRAL_LETTER':
+        return referralFields.referring_doctor || null;
+      case 'SICK_LEAVE':
+      case 'IMAGING_REPORT':
+        return sickLeaveFields.signing_doctor || null;
+      default:
+        return null;
+    }
+  }
+
   // ─── Save to DB ─────────────────────────────────────────────────────────────
 
   async function handleSaveDocument() {
@@ -402,6 +453,7 @@ export function DocumentosPage() {
       title: getDocTitle(),
       content_json: buildContentJson(),
       generated_by: me?.user?.id ?? null,
+      professional_id: getSelectedDoctorId(),
       is_valid: true,
     });
     setSaving(false);
@@ -1927,6 +1979,43 @@ function DischargeSummaryForm({
   setForm: React.Dispatch<React.SetStateAction<DischargeSummaryFields>>;
   professionals: Professional[];
 }) {
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ALL');
+
+  const specialtiesList = Array.from(
+    new Set(professionals.map((p) => p.specialty).filter((s): s is string => !!s))
+  ).sort();
+  const hasDoctorsWithoutSpecialty = professionals.some((p) => !p.specialty);
+
+  const filteredProfessionals = professionals.filter((p) => {
+    if (selectedSpecialty === 'ALL') return true;
+    if (selectedSpecialty === 'NONE') return !p.specialty;
+    return p.specialty === selectedSpecialty;
+  });
+
+  useEffect(() => {
+    if (form.responsible_doctor && professionals.length > 0 && selectedSpecialty === 'ALL') {
+      const doc = professionals.find((p) => p.id === form.responsible_doctor);
+      if (doc?.specialty) {
+        setSelectedSpecialty(doc.specialty);
+      } else if (doc && !doc.specialty) {
+        setSelectedSpecialty('NONE');
+      }
+    }
+  }, [form.responsible_doctor, professionals]);
+
+  const handleSpecialtyChange = (val: string) => {
+    setSelectedSpecialty(val);
+    if (form.responsible_doctor) {
+      const doc = professionals.find((p) => p.id === form.responsible_doctor);
+      if (doc) {
+        const docSpec = doc.specialty || 'NONE';
+        if (val !== 'ALL' && docSpec !== val) {
+          setForm((f) => ({ ...f, responsible_doctor: '' }));
+        }
+      }
+    }
+  };
+
   const set = (k: keyof DischargeSummaryFields) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -2020,21 +2109,40 @@ function DischargeSummaryForm({
           style={{ resize: 'vertical' }}
         />
       </div>
-      <div>
-        <Label>Médico Responsable *</Label>
-        <select
-          className="input-field"
-          value={form.responsible_doctor}
-          onChange={set('responsible_doctor')}
-        >
-          <option value="">Seleccionar médico...</option>
-          {professionals.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.full_name}
-              {p.specialty ? ` — ${p.specialty}` : ''}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <Label>Especialidad del Médico</Label>
+          <select
+            className="input-field"
+            value={selectedSpecialty}
+            onChange={(e) => handleSpecialtyChange(e.target.value)}
+          >
+            <option value="ALL">Todas las especialidades</option>
+            {specialtiesList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            {hasDoctorsWithoutSpecialty && (
+              <option value="NONE">Sin Especialidad / Medicina General</option>
+            )}
+          </select>
+        </div>
+        <div>
+          <Label>Médico Responsable *</Label>
+          <select
+            className="input-field"
+            value={form.responsible_doctor}
+            onChange={set('responsible_doctor')}
+          >
+            <option value="">Seleccionar médico...</option>
+            {filteredProfessionals.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
@@ -2049,6 +2157,43 @@ function MedicalCertForm({
   setForm: React.Dispatch<React.SetStateAction<MedicalCertFields>>;
   professionals: Professional[];
 }) {
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ALL');
+
+  const specialtiesList = Array.from(
+    new Set(professionals.map((p) => p.specialty).filter((s): s is string => !!s))
+  ).sort();
+  const hasDoctorsWithoutSpecialty = professionals.some((p) => !p.specialty);
+
+  const filteredProfessionals = professionals.filter((p) => {
+    if (selectedSpecialty === 'ALL') return true;
+    if (selectedSpecialty === 'NONE') return !p.specialty;
+    return p.specialty === selectedSpecialty;
+  });
+
+  useEffect(() => {
+    if (form.signing_doctor && professionals.length > 0 && selectedSpecialty === 'ALL') {
+      const doc = professionals.find((p) => p.id === form.signing_doctor);
+      if (doc?.specialty) {
+        setSelectedSpecialty(doc.specialty);
+      } else if (doc && !doc.specialty) {
+        setSelectedSpecialty('NONE');
+      }
+    }
+  }, [form.signing_doctor, professionals]);
+
+  const handleSpecialtyChange = (val: string) => {
+    setSelectedSpecialty(val);
+    if (form.signing_doctor) {
+      const doc = professionals.find((p) => p.id === form.signing_doctor);
+      if (doc) {
+        const docSpec = doc.specialty || 'NONE';
+        if (val !== 'ALL' && docSpec !== val) {
+          setForm((f) => ({ ...f, signing_doctor: '' }));
+        }
+      }
+    }
+  };
+
   const set = (k: keyof MedicalCertFields) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -2109,21 +2254,40 @@ function MedicalCertForm({
           />
         </div>
       </div>
-      <div>
-        <Label>Médico Firmante *</Label>
-        <select
-          className="input-field"
-          value={form.signing_doctor}
-          onChange={set('signing_doctor')}
-        >
-          <option value="">Seleccionar médico...</option>
-          {professionals.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.full_name}
-              {p.specialty ? ` — ${p.specialty}` : ''}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <Label>Especialidad del Médico</Label>
+          <select
+            className="input-field"
+            value={selectedSpecialty}
+            onChange={(e) => handleSpecialtyChange(e.target.value)}
+          >
+            <option value="ALL">Todas las especialidades</option>
+            {specialtiesList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            {hasDoctorsWithoutSpecialty && (
+              <option value="NONE">Sin Especialidad / Medicina General</option>
+            )}
+          </select>
+        </div>
+        <div>
+          <Label>Médico Firmante *</Label>
+          <select
+            className="input-field"
+            value={form.signing_doctor}
+            onChange={set('signing_doctor')}
+          >
+            <option value="">Seleccionar médico...</option>
+            {filteredProfessionals.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
@@ -2140,6 +2304,43 @@ function PrescriptionForm({
   prescriptions: Prescription[];
   professionals: Professional[];
 }) {
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ALL');
+
+  const specialtiesList = Array.from(
+    new Set(professionals.map((p) => p.specialty).filter((s): s is string => !!s))
+  ).sort();
+  const hasDoctorsWithoutSpecialty = professionals.some((p) => !p.specialty);
+
+  const filteredProfessionals = professionals.filter((p) => {
+    if (selectedSpecialty === 'ALL') return true;
+    if (selectedSpecialty === 'NONE') return !p.specialty;
+    return p.specialty === selectedSpecialty;
+  });
+
+  useEffect(() => {
+    if (form.prescriber_doctor && professionals.length > 0 && selectedSpecialty === 'ALL') {
+      const doc = professionals.find((p) => p.id === form.prescriber_doctor);
+      if (doc?.specialty) {
+        setSelectedSpecialty(doc.specialty);
+      } else if (doc && !doc.specialty) {
+        setSelectedSpecialty('NONE');
+      }
+    }
+  }, [form.prescriber_doctor, professionals]);
+
+  const handleSpecialtyChange = (val: string) => {
+    setSelectedSpecialty(val);
+    if (form.prescriber_doctor) {
+      const doc = professionals.find((p) => p.id === form.prescriber_doctor);
+      if (doc) {
+        const docSpec = doc.specialty || 'NONE';
+        if (val !== 'ALL' && docSpec !== val) {
+          setForm((f) => ({ ...f, prescriber_doctor: '' }));
+        }
+      }
+    }
+  };
+
   const togglePrescription = (id: string) => {
     setForm((f) => ({
       ...f,
@@ -2255,23 +2456,42 @@ function PrescriptionForm({
           style={{ resize: 'vertical' }}
         />
       </div>
-      <div>
-        <Label>Médico Prescriptor *</Label>
-        <select
-          className="input-field"
-          value={form.prescriber_doctor}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, prescriber_doctor: e.target.value }))
-          }
-        >
-          <option value="">Seleccionar médico...</option>
-          {professionals.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.full_name}
-              {p.specialty ? ` — ${p.specialty}` : ''}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <Label>Especialidad del Médico</Label>
+          <select
+            className="input-field"
+            value={selectedSpecialty}
+            onChange={(e) => handleSpecialtyChange(e.target.value)}
+          >
+            <option value="ALL">Todas las especialidades</option>
+            {specialtiesList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            {hasDoctorsWithoutSpecialty && (
+              <option value="NONE">Sin Especialidad / Medicina General</option>
+            )}
+          </select>
+        </div>
+        <div>
+          <Label>Médico Prescriptor *</Label>
+          <select
+            className="input-field"
+            value={form.prescriber_doctor}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, prescriber_doctor: e.target.value }))
+            }
+          >
+            <option value="">Seleccionar médico...</option>
+            {filteredProfessionals.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
@@ -2286,6 +2506,43 @@ function ReferralForm({
   setForm: React.Dispatch<React.SetStateAction<ReferralFields>>;
   professionals: Professional[];
 }) {
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ALL');
+
+  const specialtiesList = Array.from(
+    new Set(professionals.map((p) => p.specialty).filter((s): s is string => !!s))
+  ).sort();
+  const hasDoctorsWithoutSpecialty = professionals.some((p) => !p.specialty);
+
+  const filteredProfessionals = professionals.filter((p) => {
+    if (selectedSpecialty === 'ALL') return true;
+    if (selectedSpecialty === 'NONE') return !p.specialty;
+    return p.specialty === selectedSpecialty;
+  });
+
+  useEffect(() => {
+    if (form.referring_doctor && professionals.length > 0 && selectedSpecialty === 'ALL') {
+      const doc = professionals.find((p) => p.id === form.referring_doctor);
+      if (doc?.specialty) {
+        setSelectedSpecialty(doc.specialty);
+      } else if (doc && !doc.specialty) {
+        setSelectedSpecialty('NONE');
+      }
+    }
+  }, [form.referring_doctor, professionals]);
+
+  const handleSpecialtyChange = (val: string) => {
+    setSelectedSpecialty(val);
+    if (form.referring_doctor) {
+      const doc = professionals.find((p) => p.id === form.referring_doctor);
+      if (doc) {
+        const docSpec = doc.specialty || 'NONE';
+        if (val !== 'ALL' && docSpec !== val) {
+          setForm((f) => ({ ...f, referring_doctor: '' }));
+        }
+      }
+    }
+  };
+
   const set = (k: keyof ReferralFields) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -2357,21 +2614,40 @@ function ReferralForm({
           style={{ resize: 'vertical' }}
         />
       </div>
-      <div>
-        <Label>Médico que Deriva *</Label>
-        <select
-          className="input-field"
-          value={form.referring_doctor}
-          onChange={set('referring_doctor')}
-        >
-          <option value="">Seleccionar médico...</option>
-          {professionals.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.full_name}
-              {p.specialty ? ` — ${p.specialty}` : ''}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <Label>Especialidad del Médico</Label>
+          <select
+            className="input-field"
+            value={selectedSpecialty}
+            onChange={(e) => handleSpecialtyChange(e.target.value)}
+          >
+            <option value="ALL">Todas las especialidades</option>
+            {specialtiesList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            {hasDoctorsWithoutSpecialty && (
+              <option value="NONE">Sin Especialidad / Medicina General</option>
+            )}
+          </select>
+        </div>
+        <div>
+          <Label>Médico que Deriva *</Label>
+          <select
+            className="input-field"
+            value={form.referring_doctor}
+            onChange={set('referring_doctor')}
+          >
+            <option value="">Seleccionar médico...</option>
+            {filteredProfessionals.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
@@ -2388,6 +2664,43 @@ function SickLeaveForm({
   professionals: Professional[];
   label: string;
 }) {
+  const [selectedSpecialty, setSelectedSpecialty] = useState<string>('ALL');
+
+  const specialtiesList = Array.from(
+    new Set(professionals.map((p) => p.specialty).filter((s): s is string => !!s))
+  ).sort();
+  const hasDoctorsWithoutSpecialty = professionals.some((p) => !p.specialty);
+
+  const filteredProfessionals = professionals.filter((p) => {
+    if (selectedSpecialty === 'ALL') return true;
+    if (selectedSpecialty === 'NONE') return !p.specialty;
+    return p.specialty === selectedSpecialty;
+  });
+
+  useEffect(() => {
+    if (form.signing_doctor && professionals.length > 0 && selectedSpecialty === 'ALL') {
+      const doc = professionals.find((p) => p.id === form.signing_doctor);
+      if (doc?.specialty) {
+        setSelectedSpecialty(doc.specialty);
+      } else if (doc && !doc.specialty) {
+        setSelectedSpecialty('NONE');
+      }
+    }
+  }, [form.signing_doctor, professionals]);
+
+  const handleSpecialtyChange = (val: string) => {
+    setSelectedSpecialty(val);
+    if (form.signing_doctor) {
+      const doc = professionals.find((p) => p.id === form.signing_doctor);
+      if (doc) {
+        const docSpec = doc.specialty || 'NONE';
+        if (val !== 'ALL' && docSpec !== val) {
+          setForm((f) => ({ ...f, signing_doctor: '' }));
+        }
+      }
+    }
+  };
+
   const set = (k: keyof SickLeaveFields) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -2449,21 +2762,40 @@ function SickLeaveForm({
           />
         </div>
       </div>
-      <div>
-        <Label>Médico Firmante *</Label>
-        <select
-          className="input-field"
-          value={form.signing_doctor}
-          onChange={set('signing_doctor')}
-        >
-          <option value="">Seleccionar médico...</option>
-          {professionals.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.full_name}
-              {p.specialty ? ` — ${p.specialty}` : ''}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <Label>Especialidad del Médico</Label>
+          <select
+            className="input-field"
+            value={selectedSpecialty}
+            onChange={(e) => handleSpecialtyChange(e.target.value)}
+          >
+            <option value="ALL">Todas las especialidades</option>
+            {specialtiesList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            {hasDoctorsWithoutSpecialty && (
+              <option value="NONE">Sin Especialidad / Medicina General</option>
+            )}
+          </select>
+        </div>
+        <div>
+          <Label>Médico Firmante *</Label>
+          <select
+            className="input-field"
+            value={form.signing_doctor}
+            onChange={set('signing_doctor')}
+          >
+            <option value="">Seleccionar médico...</option>
+            {filteredProfessionals.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.full_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );

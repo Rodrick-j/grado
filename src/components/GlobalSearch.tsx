@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 interface SearchResult {
   id: string;
-  type: 'modulo' | 'paciente' | 'profesional';
+  type: 'modulo' | 'paciente' | 'profesional' | 'cita';
   label: string;
   sublabel?: string;
   href: string;
@@ -125,7 +125,29 @@ export function GlobalSearch() {
         }));
       } catch { /* silent */ }
 
-      setResults([...moduleResults, ...patientResults, ...profResults]);
+      // Appointment results from DB
+      let apptResults: SearchResult[] = [];
+      try {
+        const { data: appts } = await supabase
+          .from('appointments')
+          .select('id, reason, patients!inner(first_name, last_name, mrn)')
+          .ilike('reason', `%${query}%`)
+          .limit(3);
+        apptResults = (appts || []).map(a => {
+          const patient = Array.isArray(a.patients) ? a.patients[0] : a.patients;
+          return {
+            id: a.id,
+            type: 'cita' as const,
+            label: `Cita: ${patient?.first_name || ''} ${patient?.last_name || ''}`,
+            sublabel: a.reason || 'Consulta',
+            href: '/agenda',
+            icon: 'Calendar',
+            color: '#E91E63',
+          };
+        });
+      } catch { /* silent */ }
+
+      setResults([...moduleResults, ...patientResults, ...profResults, ...apptResults]);
       setLoading(false);
     };
 
@@ -145,7 +167,7 @@ export function GlobalSearch() {
   };
 
   const typeLabel: Record<string, string> = {
-    modulo: 'MÓDULO', paciente: 'PACIENTE', profesional: 'PROFESIONAL',
+    modulo: 'MÓDULO', paciente: 'PACIENTE', profesional: 'PROFESIONAL', cita: 'CITA',
   };
 
   if (!open) return (
@@ -191,30 +213,30 @@ export function GlobalSearch() {
         animation: 'slideDown 0.18s ease',
       }}>
         <div style={{
-          background: '#0B1628',
-          border: '1px solid rgba(30,136,229,0.4)',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-primary)',
           borderRadius: 16,
-          boxShadow: '0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(30,136,229,0.1)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.18), 0 0 0 1px var(--border-secondary)',
           overflow: 'hidden',
         }}>
           {/* Input */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid var(--border-secondary)', background: 'var(--bg-surface)' }}>
             <Icon name={loading ? 'Loader2' : 'Search'} size={18} style={{ color: '#1E88E5', flexShrink: 0 }} className={loading ? 'animate-spin' : ''} />
             <input
               ref={inputRef}
               value={query}
               onChange={e => { setQuery(e.target.value); setSelected(0); }}
               onKeyDown={handleKeyDown}
-              placeholder="Buscar paciente, médico, módulo..."
+              placeholder="Buscar paciente, médico, cita, módulo..."
               style={{
                 flex: 1, background: 'none', border: 'none', outline: 'none',
-                color: 'var(--text-primary)', fontSize: 15, fontFamily: 'Inter, sans-serif',
+                color: 'var(--text-primary)', fontSize: 16, fontFamily: 'Inter, sans-serif', fontWeight: 500,
               }}
             />
             <kbd onClick={() => setOpen(false)} style={{
-              fontSize: 10, padding: '3px 7px', borderRadius: 5, cursor: 'pointer',
-              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-              color: 'var(--text-muted)', fontFamily: 'monospace',
+              fontSize: 10, padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+              background: 'var(--bg-card)', border: '1px solid var(--border-secondary)',
+              color: 'var(--text-muted)', fontFamily: 'monospace', fontWeight: 600,
             }}>Esc</kbd>
           </div>
 
@@ -277,12 +299,13 @@ export function GlobalSearch() {
 
           {/* Footer */}
           <div style={{
-            padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.06)',
-            display: 'flex', gap: 16, fontSize: 10, color: 'var(--text-muted)',
+            padding: '10px 16px', borderTop: '1px solid var(--border-secondary)',
+            display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)',
+            background: 'var(--bg-surface)', alignItems: 'center',
           }}>
             {[['↑↓', 'Navegar'], ['↵', 'Abrir'], ['Esc', 'Cerrar']].map(([key, label]) => (
-              <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <kbd style={{ padding: '1px 5px', borderRadius: 3, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', fontFamily: 'monospace', fontSize: 10 }}>{key}</kbd>
+              <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>
+                <kbd style={{ padding: '2px 6px', borderRadius: 4, background: 'var(--bg-card)', border: '1px solid var(--border-secondary)', fontFamily: 'monospace', fontSize: 10, color: 'var(--text-secondary)' }}>{key}</kbd>
                 {label}
               </span>
             ))}

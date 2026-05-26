@@ -93,17 +93,16 @@ export default function DietasPage() {
 
   return (
     <div className="animate-fade-in" style={{ maxWidth: 1200, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <button onClick={() => router.back()} className="btn-ghost" style={{ padding: '8px', marginTop: 2 }}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <button onClick={() => router.back()} className="btn-ghost" style={{ padding: '8px', flexShrink: 0 }}>
             <Icon name="ArrowLeft" size={20} />
           </button>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="Utensils" size={24} style={{ color: '#4CAF50' }} /> Nutrición y Dietas
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className="max-sm:text-lg">
+              <Icon name="Utensils" size={20} style={{ color: '#4CAF50', flexShrink: 0 }} /> Nutrición y Dietas
             </h1>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Gestión de dietas hospitalarias para pacientes internados</p>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Gestión de dietas hospitalarias para pacientes internados</p>
           </div>
         </div>
       </div>

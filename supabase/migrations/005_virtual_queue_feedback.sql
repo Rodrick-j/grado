@@ -18,6 +18,11 @@ CREATE OR REPLACE FUNCTION register_and_book_appointment(
     p_ci_passport VARCHAR(40),
     p_phone VARCHAR(25),
     p_email VARCHAR(150),
+    p_address_line1 VARCHAR(150),
+    p_city VARCHAR(80),
+    p_emergency_name VARCHAR(150),
+    p_emergency_phone VARCHAR(25),
+    p_blood_type VARCHAR(10),
     p_specialty_id UUID,
     p_starts_at TIMESTAMPTZ
 )
@@ -33,14 +38,16 @@ AS $$
 DECLARE
     v_patient_id UUID;
     v_gender_enum gender_type;
+    v_blood_type_enum blood_type;
     v_prof_id UUID;
     v_prof_name VARCHAR(150);
     v_mrn VARCHAR(25);
     v_ends_at TIMESTAMPTZ;
     v_appt_id UUID;
 BEGIN
-    -- 1. Validar e instanciar el tipo de género
+    -- 1. Validar e instanciar el tipo de género y sangre
     v_gender_enum := p_gender::gender_type;
+    v_blood_type_enum := p_blood_type::blood_type;
     
     -- 2. Definir duración de la cita (30 minutos por defecto)
     v_ends_at := p_starts_at + INTERVAL '30 minutes';
@@ -50,8 +57,8 @@ BEGIN
 
     -- 4. Si no existe, crear el registro del paciente
     IF v_patient_id IS NULL THEN
-        INSERT INTO patients (first_name, last_name, birth_date, gender, ci_passport, phone_primary, email)
-        VALUES (p_first_name, p_last_name, p_birth_date, v_gender_enum, p_ci_passport, p_phone, p_email)
+        INSERT INTO patients (first_name, last_name, birth_date, gender, ci_passport, phone_primary, email, address_line1, city, emergency_name, emergency_phone, blood_type)
+        VALUES (p_first_name, p_last_name, p_birth_date, v_gender_enum, p_ci_passport, p_phone, p_email, p_address_line1, p_city, p_emergency_name, p_emergency_phone, v_blood_type_enum)
         RETURNING id, mrn INTO v_patient_id, v_mrn;
     END IF;
 
@@ -69,7 +76,7 @@ BEGIN
 
     -- 7. Insertar la cita programada
     INSERT INTO appointments (patient_id, professional_id, specialty_id, starts_at, ends_at, visit_type, status, reason)
-    VALUES (v_patient_id, v_prof_id, p_specialty_id, p_starts_at, v_ends_at, 'CONSULTATION', 'SCHEDULED', 'Cita agendada vía Portal Web PWA')
+    VALUES (v_patient_id, v_prof_id, p_specialty_id, p_starts_at, v_ends_at, 'CONSULTATION', 'PENDING', 'Cita agendada vía Portal Web PWA')
     RETURNING id INTO v_appt_id;
 
     -- 8. Retornar los datos de la cita registrada

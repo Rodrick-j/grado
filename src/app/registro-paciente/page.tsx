@@ -7,7 +7,10 @@ import { Icon } from '@/components/Icon';
 import { AppShell } from '@/components/AppShell';
 import { QRScanner } from '@/components/QRScanner';
 import SignatureCanvas from 'react-signature-canvas';
+import { useAuth } from '@/hooks/useAuth';
 import { createPatientAction, type PatientFormData } from './actions';
+import { PhoneInput } from '@/components/PhoneInput';
+import { BoliviaLocationSelect } from '@/components/BoliviaLocationSelect';
 
 const STEPS = [
   { id: 1, label: 'Identidad', icon: 'User' },
@@ -31,13 +34,14 @@ export default function RegistroPacientePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMrn, setSuccessMrn] = useState('');
+  const { user } = useAuth();
   
   const sigCanvas = useRef<any>(null);
   const router = useRouter();
 
   const [formData, setFormData] = useState<PatientFormData>({
     ci_passport: '', first_name: '', last_name: '', birth_date: '', gender: 'MALE',
-    phone_primary: '', email: '', address_line1: '', city: '',
+    phone_primary: '', email: '', address_line1: '', city: '', state_province: '',
     emergency_name: '', emergency_phone: '', insurance_provider: '', insurance_policy_num: '',
     consent_treatment: false, consent_data: false, photo_base64: '', id_card_base64: ''
   });
@@ -48,9 +52,34 @@ export default function RegistroPacientePage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'photo_base64' | 'id_card_base64') => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onloadend = () => {
-      set(field, reader.result as string);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const max_size = 1200; // Resize to max 1200px to compress
+
+        if (width > height) {
+          if (width > max_size) { height *= max_size / width; width = max_size; }
+        } else {
+          if (height > max_size) { width *= max_size / height; height = max_size; }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6); // 60% quality JPEG compression
+          set(field, compressedBase64);
+        }
+      };
+      if (event.target?.result) {
+        img.src = event.target.result as string;
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -85,7 +114,7 @@ export default function RegistroPacientePage() {
     setError('');
     
     const signatureUrl = sigCanvas.current?.getTrimmedCanvas().toDataURL('image/png');
-    const finalData = { ...formData, consent_signature_url: signatureUrl };
+    const finalData = { ...formData, consent_signature_url: signatureUrl, created_by: user?.id };
 
     const res = await createPatientAction(finalData);
 
@@ -138,28 +167,28 @@ export default function RegistroPacientePage() {
       <div className="animate-fade-in" style={{ padding: '4px 24px 40px', maxWidth: 720, margin: '0 auto' }}>
         
         {/* Header */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 28,
-          background: 'linear-gradient(135deg, rgba(30, 136, 229, 0.12) 0%, rgba(21, 101, 192, 0.02) 100%)',
-          border: '1px solid rgba(30, 136, 229, 0.25)',
-          borderRadius: 14,
-          padding: '16px 20px',
-          boxShadow: '0 4px 20px rgba(30, 136, 229, 0.05)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Link href="/adt" style={{ padding: 8, borderRadius: 8, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', textDecoration: 'none', background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)' }}>
+        <div 
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          style={{
+            marginBottom: 28,
+            background: 'linear-gradient(135deg, rgba(30, 136, 229, 0.12) 0%, rgba(21, 101, 192, 0.02) 100%)',
+            border: '1px solid rgba(30, 136, 229, 0.25)',
+            borderRadius: 14,
+            padding: '16px 20px',
+            boxShadow: '0 4px 20px rgba(30, 136, 229, 0.05)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+            <Link href="/adt" style={{ padding: 8, borderRadius: 8, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', textDecoration: 'none', background: 'var(--bg-surface)', border: '1px solid var(--border-secondary)', flexShrink: 0 }}>
               <Icon name="ArrowLeft" size={16} />
             </Link>
-            <div>
-              <h1 style={{ fontSize: 21, fontWeight: 800, color: '#1E88E5', letterSpacing: '-0.02em', margin: 0 }}>Registro Universal de Pacientes</h1>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, margin: 0 }}>Ingreso de datos demográficos y administrativos</p>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontSize: 21, fontWeight: 800, color: '#1E88E5', letterSpacing: '-0.02em', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className="max-sm:text-lg">Registro Universal de Pacientes</h1>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Ingreso de datos demográficos y administrativos</p>
             </div>
           </div>
           {step === 1 && (
-            <button className="btn-ghost" style={{ background: 'rgba(30,136,229,0.15)', color: '#1E88E5', border: '1px solid rgba(30,136,229,0.3)', margin: 0 }} onClick={() => setShowScanner(true)}>
+            <button className="btn-ghost w-full sm:w-auto" style={{ background: 'rgba(30,136,229,0.15)', color: '#1E88E5', border: '1px solid rgba(30,136,229,0.3)', margin: 0, justifyContent: 'center' }} onClick={() => setShowScanner(true)}>
               <Icon name="Scan" size={14} /> Escanear Documento
             </button>
           )}
@@ -200,23 +229,32 @@ export default function RegistroPacientePage() {
           </div>
         )}
 
-        <div className="glass-card" style={{ padding: 28 }}>
+        <div className="glass-card" style={{ 
+          padding: 28, 
+          background: 'var(--bg-elevated)', 
+          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+          border: '1px solid var(--border-primary)',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          {/* Acento de color en la parte superior para que no sea tan aburrido */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(90deg, #1E88E5, #00B4D8, #4CAF50)' }} />
           
           {step === 1 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>1. Identidad y Demografía</h2>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>👤 1. Identidad y Demografía</h2>
               
               {/* Fotos del Paciente y de su Carnet */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2" style={{ background: 'rgba(30,136,229,0.03)', border: '1px solid var(--border-secondary)', padding: 16, borderRadius: 12 }}>
-                <Field label="Foto de Perfil del Paciente">
+                <Field label="📷 Foto de Perfil del Paciente">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{
-                      width: 60, height: 60, borderRadius: '50%', border: '1px solid var(--border-primary)',
+                      width: 80, height: 80, borderRadius: 12, border: '1px solid var(--border-primary)',
                       background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       overflow: 'hidden', flexShrink: 0
                     }}>
                       {formData.photo_base64 ? (
-                        <img src={formData.photo_base64} alt="Preview Foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={formData.photo_base64} alt="Preview Foto" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       ) : (
                         <Icon name="Camera" size={20} style={{ color: 'var(--text-muted)' }} />
                       )}
@@ -228,15 +266,15 @@ export default function RegistroPacientePage() {
                   </div>
                 </Field>
 
-                <Field label="Foto de Cédula / Carnet de Identidad">
+                <Field label="🪪 Foto de Cédula / Carnet de Identidad">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{
-                      width: 100, height: 60, borderRadius: 6, border: '1px solid var(--border-primary)',
+                      width: 140, height: 80, borderRadius: 12, border: '1px solid var(--border-primary)',
                       background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       overflow: 'hidden', flexShrink: 0
                     }}>
                       {formData.id_card_base64 ? (
-                        <img src={formData.id_card_base64} alt="Preview Carnet" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={formData.id_card_base64} alt="Preview Carnet" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       ) : (
                         <Icon name="FileImage" size={20} style={{ color: 'var(--text-muted)' }} />
                       )}
@@ -250,14 +288,23 @@ export default function RegistroPacientePage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Cédula / Pasaporte" required><input className="input-field" value={formData.ci_passport} onChange={e=>set('ci_passport', e.target.value)} /></Field>
-                <Field label="Fecha de Nacimiento" required><input type="date" className="input-field" value={formData.birth_date} onChange={e=>set('birth_date', e.target.value)} /></Field>
+                <Field label="🪪 Cédula / Pasaporte" required><input className="input-field" value={formData.ci_passport} onChange={e=>set('ci_passport', e.target.value.toUpperCase().replace(/[^A-Z0-9\-]/g, ''))} /></Field>
+                <Field label="📅 Fecha de Nacimiento" required>
+                  <input 
+                    type="date" 
+                    className="input-field" 
+                    value={formData.birth_date} 
+                    onChange={e=>set('birth_date', e.target.value)} 
+                    max={new Date().toISOString().split('T')[0]}
+                    min={new Date(new Date().setFullYear(new Date().getFullYear() - 130)).toISOString().split('T')[0]}
+                  />
+                </Field>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Nombres" required><input className="input-field" value={formData.first_name} onChange={e=>set('first_name', e.target.value)} /></Field>
-                <Field label="Apellidos" required><input className="input-field" value={formData.last_name} onChange={e=>set('last_name', e.target.value)} /></Field>
+                <Field label="🧑 Nombres" required><input className="input-field" value={formData.first_name} onChange={e=>set('first_name', e.target.value.toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ ]/g, ''))} /></Field>
+                <Field label="🧑 Apellidos" required><input className="input-field" value={formData.last_name} onChange={e=>set('last_name', e.target.value.toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ ]/g, ''))} /></Field>
               </div>
-              <Field label="Género Biológico">
+              <Field label="🧬 Género Biológico">
                 <select className="input-field" value={formData.gender} onChange={e=>set('gender', e.target.value)}>
                   <option value="MALE">Masculino</option><option value="FEMALE">Femenino</option><option value="OTHER">Otro</option>
                 </select>
@@ -267,41 +314,89 @@ export default function RegistroPacientePage() {
 
           {step === 2 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>2. Contacto y Domicilio</h2>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>📍 2. Contacto y Domicilio</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Teléfono Principal" required><input className="input-field" value={formData.phone_primary} onChange={e=>set('phone_primary', e.target.value)} /></Field>
-                <Field label="Email"><input type="email" className="input-field" value={formData.email} onChange={e=>set('email', e.target.value)} /></Field>
+                <Field label="📱 Teléfono Principal" required>
+                  <PhoneInput value={formData.phone_primary || ''} onChange={v => set('phone_primary', v || '')} required />
+                </Field>
+                <Field label="✉️ Email"><input type="email" className="input-field" value={formData.email} onChange={e=>set('email', e.target.value)} /></Field>
               </div>
-              <Field label="Dirección Residencial"><input className="input-field" value={formData.address_line1} onChange={e=>set('address_line1', e.target.value)} /></Field>
-              <Field label="Ciudad / Estado"><input className="input-field" value={formData.city} onChange={e=>set('city', e.target.value)} /></Field>
+              <Field label="🏠 Dirección Residencial"><input className="input-field" value={formData.address_line1} onChange={e=>set('address_line1', e.target.value)} /></Field>
+              <BoliviaLocationSelect 
+                department={formData.state_province || ''} 
+                municipality={formData.city || ''} 
+                onChange={(dept, muni) => { set('state_province', dept); set('city', muni); }} 
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Nombre Contacto Emergencia"><input className="input-field" value={formData.emergency_name} onChange={e=>set('emergency_name', e.target.value)} /></Field>
-                <Field label="Teléfono Emergencia"><input className="input-field" value={formData.emergency_phone} onChange={e=>set('emergency_phone', e.target.value)} /></Field>
+                <Field label="🚨 Nombre Contacto Emergencia"><input className="input-field" value={formData.emergency_name} onChange={e=>set('emergency_name', e.target.value.toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ ]/g, ''))} /></Field>
+                <Field label="📞 Teléfono Emergencia">
+                  <PhoneInput value={formData.emergency_phone || ''} onChange={v => set('emergency_phone', v || '')} />
+                </Field>
               </div>
             </div>
           )}
 
           {step === 3 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>3. Seguro y Cobertura Médica</h2>
-              <Field label="Proveedor de Seguro">
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>🏥 3. Seguro y Cobertura Médica</h2>
+              <Field label="🛡️ Proveedor de Seguro">
                 <select className="input-field" value={formData.insurance_provider} onChange={e=>set('insurance_provider', e.target.value)}>
-                  <option value="">Ninguno / Particular</option>
-                  <option value="Medicare">Medicare</option>
-                  <option value="Medicaid">Medicaid</option>
-                  <option value="BlueCross">BlueCross BlueShield</option>
-                  <option value="SeguroPrivado">Otro Seguro Privado</option>
+                  <option value="">Ninguno / Particular (Sin Seguro)</option>
+                  <optgroup label="Sistema Público">
+                    <option value="SUS">SUS (Sistema Único de Salud)</option>
+                  </optgroup>
+                  <optgroup label="Cajas de Salud (Seguridad Social)">
+                    <option value="CNS">Caja Nacional de Salud (CNS)</option>
+                    <option value="CPS">Caja Petrolera de Salud (CPS)</option>
+                    <option value="CORDES">Caja de Salud CORDES</option>
+                    <option value="Caja_Bancaria">Caja Bancaria Estatal de Salud</option>
+                    <option value="Caja_Caminos">Caja de Salud de Caminos</option>
+                    <option value="SSU">Seguro Social Universitario (SSU)</option>
+                    <option value="COSSMIL">COSSMIL</option>
+                  </optgroup>
+                  <optgroup label="Seguros Privados">
+                    <option value="Nacional_Seguros">Nacional Seguros</option>
+                    <option value="Alianza_Seguros">Alianza Seguros</option>
+                    <option value="Bisa_Seguros">BISA Seguros</option>
+                    <option value="LBC_Seguros">LBC Seguros (La Boliviana Ciacruz)</option>
+                    <option value="Otro_Privado">Otro Seguro Privado</option>
+                  </optgroup>
                 </select>
               </Field>
-              {formData.insurance_provider && (
-                <Field label="Número de Póliza"><input className="input-field" value={formData.insurance_policy_num} onChange={e=>set('insurance_policy_num', e.target.value)} /></Field>
-              )}
+              {formData.insurance_provider && formData.insurance_provider !== 'SUS' && (() => {
+                let label = '🔢 Número de Póliza o Matrícula';
+                let placeholder = 'Escriba aquí...';
+                switch (formData.insurance_provider) {
+                  case 'CNS': label = '🔢 Número de Matrícula (CNS)'; placeholder = 'Ej: 85-04-15-PEMA-0'; break;
+                  case 'CPS': label = '🔢 Matrícula o CI (CPS)'; placeholder = 'Ej: 6102934'; break;
+                  case 'CORDES': label = '🔢 Código de Afiliación o CI'; placeholder = 'Ej: 3948502'; break;
+                  case 'Caja_Bancaria':
+                  case 'Caja_Caminos':
+                  case 'SSU': label = '🔢 Matrícula con Sufijo'; placeholder = 'Ej: 5930291-00'; break;
+                  case 'COSSMIL': label = '🔢 Matrícula Militar o CI'; placeholder = 'Ej: M-19284-A o 1029384'; break;
+                  case 'Nacional_Seguros':
+                  case 'Alianza_Seguros':
+                  case 'Bisa_Seguros':
+                  case 'LBC_Seguros':
+                  case 'Otro_Privado': label = '🔢 Número de Póliza / Certificado'; placeholder = 'Ej: POL-2026-SAL-004912'; break;
+                }
+                return (
+                  <Field label={label}>
+                    <input 
+                      className="input-field" 
+                      placeholder={placeholder}
+                      value={formData.insurance_policy_num} 
+                      onChange={e=>set('insurance_policy_num', e.target.value.toUpperCase())} 
+                    />
+                  </Field>
+                );
+              })()}
             </div>
           )}
 
           {step === 4 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>4. Consentimientos Legales</h2>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-secondary)', paddingBottom: 10 }}>✍️ 4. Consentimientos Legales</h2>
               
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px', background: 'var(--bg-surface)', borderRadius: 10, border: '1px solid var(--border-secondary)', cursor: 'pointer' }} onClick={() => set('consent_treatment', !formData.consent_treatment)}>
                 <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${formData.consent_treatment ? '#1E88E5' : 'var(--border-primary)'}`, background: formData.consent_treatment ? '#1E88E5' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', flexShrink: 0, marginTop: 2 }}>
@@ -323,7 +418,7 @@ export default function RegistroPacientePage() {
                 </div>
               </div>
 
-              <Field label="Firma Digital del Paciente">
+              <Field label="✒️ Firma Digital del Paciente">
                 <div style={{ background: '#E3F2FD', borderRadius: 8, border: '2px dashed #90CAF9', overflow: 'hidden', position: 'relative' }}>
                   <SignatureCanvas ref={sigCanvas} penColor="#0D47A1" canvasProps={{ width: 500, height: 150, className: 'sigCanvas', style: { width: '100%' } }} />
                 </div>
@@ -336,21 +431,21 @@ export default function RegistroPacientePage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border-secondary)' }}>
-            <button className="btn-ghost" onClick={() => { setError(''); setStep(s => Math.max(1, s - 1)); }} disabled={step === 1} style={{ opacity: step === 1 ? 0.4 : 1 }}>
+          <div className="flex flex-row items-center justify-between gap-2" style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border-secondary)', flexWrap: 'wrap' }}>
+            <button className="btn-ghost" onClick={() => { setError(''); setStep(s => Math.max(1, s - 1)); }} disabled={step === 1} style={{ opacity: step === 1 ? 0.4 : 1, padding: '8px 12px' }}>
               <Icon name="ArrowLeft" size={14} /> Anterior
             </button>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div className="flex gap-1.5 max-sm:hidden">
               {STEPS.map(s => (
                 <div key={s.id} style={{ width: step === s.id ? 20 : 6, height: 6, borderRadius: 3, background: step === s.id ? '#1E88E5' : step > s.id ? 'rgba(30,136,229,0.4)' : 'var(--border-primary)', transition: 'all 0.3s' }} />
               ))}
             </div>
             {step < 4 ? (
-              <button className="btn-primary" onClick={() => { setError(''); setStep(s => Math.min(4, s + 1)); }}>
+              <button className="btn-primary" onClick={() => { setError(''); setStep(s => Math.min(4, s + 1)); }} style={{ padding: '8px 16px' }}>
                 Siguiente <Icon name="ArrowRight" size={14} />
               </button>
             ) : (
-              <button className="btn-primary" style={{ background: 'linear-gradient(135deg, #43A047, #1B5E20)', minWidth: 180 }} onClick={handleSave} disabled={loading}>
+              <button className="btn-primary max-sm:w-full" style={{ background: 'linear-gradient(135deg, #43A047, #1B5E20)', minWidth: 150 }} onClick={handleSave} disabled={loading}>
                 {loading ? <><Icon name="Loader2" size={14} className="animate-spin" /> Guardando...</> : <><Icon name="UserCheck" size={14} /> Registrar Paciente</>}
               </button>
             )}

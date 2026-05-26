@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Pill, Plus, Clock, CheckCircle, AlertTriangle, XCircle, Sun, Sunset, Moon, X, Check, ChevronDown, Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,8 +13,10 @@ type RouteType = 'oral' | 'IV' | 'IM' | 'SC' | 'topical' | 'inhaled';
 
 interface Patient {
   id: string;
-  full_name: string;
-  document_number?: string;
+  first_name: string;
+  last_name: string;
+  ci_passport?: string;
+  mrn?: string;
 }
 
 interface MedicationAdministration {
@@ -38,7 +41,7 @@ interface MedicationAdministration {
   notes: string | null;
   shift: MarShift;
   created_at: string;
-  patients?: { full_name: string };
+  patients?: { first_name: string; last_name: string };
 }
 
 interface FiveRightsState {
@@ -105,6 +108,7 @@ const FIVE_RIGHTS_LABELS: { key: keyof FiveRightsState; label: string; descripti
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function MARPage() {
   const supabase = createClient();
+  const { user } = useAuth();
 
   const [shift, setShift] = useState<MarShift>('MORNING');
   const [records, setRecords] = useState<MedicationAdministration[]>([]);
@@ -143,7 +147,7 @@ export default function MARPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('medication_administrations')
-      .select('*, patients(full_name)')
+      .select('*, patients(first_name, last_name)')
       .eq('shift', shift)
       .order('scheduled_at', { ascending: true });
     if (!error && data) setRecords(data as MedicationAdministration[]);
@@ -153,9 +157,9 @@ export default function MARPage() {
   const loadPatients = useCallback(async () => {
     const { data } = await supabase
       .from('patients')
-      .select('id, full_name, document_number')
-      .order('full_name');
-    if (data) setPatients(data as Patient[]);
+      .select('id, first_name, last_name, ci_passport, mrn')
+      .order('last_name');
+    if (data) setPatients(data as unknown as Patient[]);
   }, [supabase]);
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
@@ -211,6 +215,10 @@ export default function MARPage() {
 
   async function submitNewEntry() {
     if (!newForm.patient_id || !newForm.drug_name || !newForm.dose || !newForm.scheduled_at) return;
+    if (!user) {
+      alert('Error: Debe iniciar sesión para crear registros.');
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from('medication_administrations')
@@ -223,11 +231,15 @@ export default function MARPage() {
         shift:        newForm.shift,
         notes:        newForm.notes || null,
         status:       'PENDING',
+        nurse_id:     user.id,
         right_patient: false, right_drug: false, right_dose: false,
         right_route: false, right_time: false,
       });
     setSaving(false);
-    if (!error) {
+    if (error) {
+      console.error('Error insertando MAR:', error);
+      alert('Error al crear registro: ' + error.message);
+    } else {
       setNewModal(false);
       setNewForm({ patient_id: '', drug_name: '', dose: '', route: 'oral', scheduled_at: '', shift: 'MORNING', notes: '' });
       loadRecords();
@@ -370,7 +382,7 @@ export default function MARPage() {
 
             {/* Reference info */}
             <div style={styles.adminRefGrid}>
-              <RefCard label="Paciente"    value={adminModal.patients?.full_name ?? adminModal.patient_id} color="#00BCD4" />
+              <RefCard label="Paciente"    value={adminModal.patients ? `${adminModal.patients.last_name} ${adminModal.patients.first_name}` : adminModal.patient_id.slice(0, 8) + '…'} color="#00BCD4" />
               <RefCard label="Medicamento" value={adminModal.drug_name} color="#4CAF50" />
               <RefCard label="Dosis"       value={adminModal.dose}      color="#FF9800" />
               <RefCard label="Vía"         value={adminModal.route}     color="#9C27B0" />
@@ -542,7 +554,7 @@ export default function MARPage() {
                   >
                     <option value="">Seleccionar paciente…</option>
                     {patients.map(p => (
-                      <option key={p.id} value={p.id}>{p.full_name}</option>
+                      <option key={p.id} value={p.id}>{p.last_name} {p.first_name} - {p.ci_passport || p.mrn}</option>
                     ))}
                   </select>
                 </div>
@@ -600,6 +612,20 @@ export default function MARPage() {
 
               <div style={styles.formGroup}>
                 <label style={styles.formLabel}>Fecha y hora programada <span style={{ color: '#F44336' }}>*</span></label>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <button type="button" style={{ ...styles.shiftBtn, padding: '4px 8px', fontSize: 12, flex: 1, border: '1px solid var(--border-primary)', borderRadius: 6 }} onClick={() => {
+                    const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                    setNewForm(prev => ({ ...prev, scheduled_at: d.toISOString().slice(0, 16) }));
+                  }}>⌚ Ahora</button>
+                  <button type="button" style={{ ...styles.shiftBtn, padding: '4px 8px', fontSize: 12, flex: 1, border: '1px solid var(--border-primary)', borderRadius: 6 }} onClick={() => {
+                    const d = new Date(); d.setMinutes(d.getMinutes() + 30 - d.getTimezoneOffset());
+                    setNewForm(prev => ({ ...prev, scheduled_at: d.toISOString().slice(0, 16) }));
+                  }}>+30 min</button>
+                  <button type="button" style={{ ...styles.shiftBtn, padding: '4px 8px', fontSize: 12, flex: 1, border: '1px solid var(--border-primary)', borderRadius: 6 }} onClick={() => {
+                    const d = new Date(); d.setHours(d.getHours() + 1); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                    setNewForm(prev => ({ ...prev, scheduled_at: d.toISOString().slice(0, 16) }));
+                  }}>+1 hora</button>
+                </div>
                 <input
                   id="new-mar-datetime-input"
                   type="datetime-local"
@@ -680,7 +706,7 @@ function MARRow({
     <tr>
       <td>
         <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-          {rec.patients?.full_name ?? rec.patient_id.slice(0, 8) + '…'}
+          {rec.patients ? `${rec.patients.last_name} ${rec.patients.first_name}` : rec.patient_id.slice(0, 8) + '…'}
         </div>
       </td>
       <td>
@@ -765,9 +791,9 @@ function MARRow({
 
 function RefCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div style={{ background: `${color}15`, border: `1px solid ${color}40`, borderRadius: 10, padding: '12px 16px' }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: `${color}99`, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 15, fontWeight: 700, color }}>{value}</div>
+    <div style={{ background: `${color}15`, border: `1px solid ${color}40`, borderRadius: '8px', padding: '8px 12px' }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: `${color}99`, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color }}>{value}</div>
     </div>
   );
 }
@@ -973,18 +999,18 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '24px',
   },
   adminModalBox: {
-    background: 'linear-gradient(145deg, #0d1f3c 0%, #0a1628 100%)',
-    border: '1px solid rgba(0,188,212,0.3)',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-primary)',
     borderRadius: '20px',
     width: '100%',
     maxWidth: '640px',
-    boxShadow: '0 24px 80px rgba(0,0,0,0.8), 0 0 40px rgba(0,188,212,0.15)',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.15)',
     overflow: 'hidden',
   },
   adminModalHeader: {
-    padding: '24px 28px',
-    background: 'linear-gradient(135deg, rgba(0,188,212,0.15) 0%, rgba(0,0,0,0) 100%)',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    padding: '16px 20px',
+    background: 'var(--bg-surface)',
+    borderBottom: '1px solid var(--border-secondary)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1000,18 +1026,18 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 0 20px rgba(0,188,212,0.4)',
   },
   adminModalTitle: {
-    color: '#fff',
+    color: 'var(--text-primary)',
     fontSize: '18px',
     fontWeight: 700,
   },
   adminRefGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: '10px',
-    padding: '20px 28px',
+    gap: '8px',
+    padding: '12px 20px',
   },
   progressSection: {
-    padding: '0 28px 20px',
+    padding: '0 20px 12px',
   },
   progressTrack: {
     height: '12px',
@@ -1025,18 +1051,18 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'width 0.4s ease, background 0.4s ease',
   },
   rightsGrid: {
-    padding: '0 28px',
+    padding: '0 20px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '6px',
   },
   rightItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '14px',
-    padding: '14px 16px',
+    gap: '12px',
+    padding: '8px 12px',
     borderRadius: '10px',
-    border: '1px solid rgba(255,255,255,0.06)',
+    border: '1px solid var(--border-secondary)',
     cursor: 'pointer',
     transition: 'background 0.2s ease',
   },
@@ -1044,13 +1070,13 @@ const styles: Record<string, React.CSSProperties> = {
     width: 28,
     height: 28,
     borderRadius: '50%',
-    background: 'rgba(255,255,255,0.08)',
+    background: 'var(--bg-surface)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '13px',
     fontWeight: 700,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'var(--text-muted)',
     flexShrink: 0,
   },
   rightCheckbox: {
@@ -1065,18 +1091,18 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   adminModalFooter: {
-    padding: '20px 28px 24px',
+    padding: '12px 20px 16px',
     display: 'flex',
     gap: '12px',
     justifyContent: 'flex-end',
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-    marginTop: '16px',
+    borderTop: '1px solid var(--border-secondary)',
+    marginTop: '12px',
   },
   cancelBtn: {
     padding: '10px 20px',
-    background: 'rgba(255,255,255,0.06)',
-    color: 'rgba(255,255,255,0.6)',
-    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border-primary)',
     borderRadius: '8px',
     fontSize: '13px',
     fontWeight: 600,
@@ -1098,18 +1124,18 @@ const styles: Record<string, React.CSSProperties> = {
   },
   // ── Small modal ─────────────────────────────────────────────────────────
   smallModalBox: {
-    background: 'linear-gradient(145deg, #0d1f3c 0%, #0a1628 100%)',
-    border: '1px solid rgba(255,152,0,0.25)',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-primary)',
     borderRadius: '16px',
     width: '100%',
     maxWidth: '460px',
-    boxShadow: '0 24px 60px rgba(0,0,0,0.7)',
+    boxShadow: '0 24px 60px rgba(0,0,0,0.15)',
     overflow: 'hidden',
   },
   smallModalHeader: {
     padding: '20px 24px',
-    background: 'rgba(255,152,0,0.08)',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    background: 'var(--bg-surface)',
+    borderBottom: '1px solid var(--border-secondary)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1135,20 +1161,20 @@ const styles: Record<string, React.CSSProperties> = {
   },
   // ── New entry modal ─────────────────────────────────────────────────────
   newModalBox: {
-    background: 'linear-gradient(145deg, #0d1f3c 0%, #0a1628 100%)',
-    border: '1px solid rgba(0,188,212,0.2)',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-primary)',
     borderRadius: '16px',
     width: '100%',
     maxWidth: '560px',
-    boxShadow: '0 24px 60px rgba(0,0,0,0.7)',
+    boxShadow: '0 24px 60px rgba(0,0,0,0.15)',
     overflow: 'hidden',
     maxHeight: '90vh',
     overflowY: 'auto',
   },
   newModalHeader: {
     padding: '20px 24px',
-    background: 'rgba(0,188,212,0.08)',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    background: 'var(--bg-surface)',
+    borderBottom: '1px solid var(--border-secondary)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1198,10 +1224,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '14px',
   },
   closeBtn: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'transparent',
+    border: '1px solid var(--border-primary)',
     borderRadius: '8px',
-    color: 'rgba(255,255,255,0.5)',
+    color: 'var(--text-muted)',
     width: 32,
     height: 32,
     display: 'flex',
